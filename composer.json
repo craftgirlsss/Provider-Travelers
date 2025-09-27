@@ -1,0 +1,7 @@
+{
+    "name": "karyadeveloperindonesia/provider-travelers",
+    "description": "Proyek Provider Travelers",
+    "require": {
+        "phpmailer/phpmailer": "^6.10" 
+    }
+}
