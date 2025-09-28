@@ -1,10 +1,6 @@
 <?php
 // File: pages/dashboard/create_trip.php
 
-// Anda dapat menambahkan logika untuk mengambil data dari DB jika diperlukan
-// Misalnya, daftar kategori atau tujuan yang sudah didefinisikan sebelumnya.
-
-// Tampilkan pesan sukses/gagal dari proses sebelumnya (jika ada)
 $message = $_SESSION['form_message'] ?? '';
 $message_type = $_SESSION['form_message_type'] ?? 'danger';
 unset($_SESSION['form_message']);
@@ -110,6 +106,5 @@ unset($_SESSION['form_message_type']);
             </div>
         </div>
     </div>
-    
     <button type="submit" class="btn btn-primary btn-lg w-100 mt-3"><i class="bi bi-save me-2"></i> Simpan & Publikasikan Trip</button>
 </form>

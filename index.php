@@ -23,11 +23,12 @@ switch ($path) {
         require __DIR__ . '/pages/new_password.php';
         break;
     
-        
     case 'dashboard':
         // Ini adalah rute yang seharusnya memuat dashboard.php
         require __DIR__ . '/dashboard.php';
         break;
+        
+    // HAPUS: case 'trip_edit': (karena sudah ditangani oleh router di dashboard.php)
 
     // --- Process/Logic ---
     case 'process/login_process':
