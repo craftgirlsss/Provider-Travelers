@@ -48,10 +48,11 @@ try {
                                 booked_participants,
                                 price, 
                                 discount_price, 
-                                status 
+                                status,
+                                approval_status  /* <-- BARU: Tambahkan status persetujuan dari Admin */
                             FROM trips 
                             WHERE provider_id = ? 
-                            AND is_deleted = 0  -- <<< HANYA TAMPILKAN TRIP YANG BELUM DIHAPUS (AKTIF)
+                            AND is_deleted = 0  /* HANYA TAMPILKAN TRIP YANG BELUM DIHAPUS (AKTIF) */
                             ORDER BY created_at DESC");
         
         $stmt->bind_param("i", $actual_provider_id); // Mengikat ID Provider yang SEJATI
@@ -71,7 +72,7 @@ try {
 }
 
 /**
- * Fungsi Pembantu untuk Badge Status
+ * Fungsi Pembantu untuk Badge Status Trip oleh Provider
  */
 function get_status_badge($status) {
     switch ($status) {
@@ -80,6 +81,18 @@ function get_status_badge($status) {
         case 'closed': return '<span class="badge bg-warning text-dark">Penuh/Tutup</span>';
         case 'cancelled': return '<span class="badge bg-danger">Dibatalkan</span>';
         default: return '<span class="badge bg-info text-dark">N/A</span>';
+    }
+}
+
+/**
+ * Fungsi Pembantu untuk Badge Status Persetujuan oleh Admin
+ */
+function get_approval_badge($approval_status) {
+    switch ($approval_status) {
+        case 'approved': return '<span class="badge bg-primary">Disetujui</span>';
+        case 'suspended': return '<span class="badge bg-danger">Ditangguhkan</span>';
+        case 'pending':
+        default: return '<span class="badge bg-warning text-dark">Menunggu</span>';
     }
 }
 ?>
@@ -116,9 +129,9 @@ function get_status_badge($status) {
                             <th>Trip ID</th>
                             <th>Judul & Tujuan</th>
                             <th>Jadwal</th>
-                            <th>Kuota</th>
                             <th>Harga</th>
-                            <th>Status</th>
+                            <th>Status Provider</th>
+                            <th>Status Admin</th> <!-- <-- BARU: Kolom Status Admin -->
                             <th class="text-center">Aksi</th>
                         </tr>
                     </thead>
@@ -135,16 +148,20 @@ function get_status_badge($status) {
                                 <?php echo date('d M Y', strtotime($trip['end_date'])); ?>
                             </td>
                             <td>
-                                <strong><?php echo $trip['booked_participants']; ?></strong> / <?php echo $trip['max_participants']; ?>
-                            </td>
-                            <td>
                                 Rp <?php echo number_format($trip['price'], 0, ',', '.'); ?>
                                 <?php if ($trip['discount_price'] > 0): ?>
                                     <br><small class="text-danger text-decoration-line-through">Rp <?php echo number_format($trip['discount_price'], 0, ',', '.'); ?></small>
                                 <?php endif; ?>
                             </td>
                             <td>
+                                <!-- Status yang diatur oleh Provider (published, draft, dll) -->
                                 <?php echo get_status_badge($trip['status']); ?>
+                                <br>
+                                <small class="text-muted"><?php echo $trip['booked_participants']; ?> / <?php echo $trip['max_participants']; ?> Kuota</small>
+                            </td>
+                            <td>
+                                <!-- Status yang diatur oleh Admin (approved, pending, suspended) -->
+                                <?php echo get_approval_badge($trip['approval_status'] ?? 'pending'); ?>
                             </td>
                             <td class="text-center">
                                 <a href="/dashboard?p=trip_edit&id=<?php echo $trip['id']; ?>" class="btn btn-sm btn-info text-white me-2" title="Edit Trip"><i class="bi bi-pencil"></i> Edit</a>
