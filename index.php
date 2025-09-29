@@ -27,8 +27,14 @@ switch ($path) {
         // Ini adalah rute yang seharusnya memuat dashboard.php
         require __DIR__ . '/dashboard.php';
         break;
+
+    case 'process/booking_chat_process':
+        require __DIR__ . '/process/booking_chat_process.php';
+        break;
         
-    // HAPUS: case 'trip_edit': (karena sudah ditangani oleh router di dashboard.php)
+    case 'process/profile_process': // <--- Rute BARU untuk Profile & Settings
+        require __DIR__ . '/process/profile_process.php';
+        break;
 
     // --- Process/Logic ---
     case 'process/login_process':

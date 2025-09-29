@@ -17,13 +17,15 @@ $page = $_GET['p'] ?? 'summary'; // Default ke halaman 'summary'
 
 // Peta file konten dashboard
 $allowed_pages = [
+    'orders' => 'dashboard/order_list.php',
+    'booking_chat' => 'dashboard/booking_chat.php',
     'summary' => 'dashboard/summary.php',
     'trips' => 'dashboard/trip_list.php', 
     'trip_create' => 'dashboard/create_trip.php',
     'trip_edit' => 'dashboard/trip_edit.php', 
-    'trip_archive' => 'dashboard/trip_archive.php', // <-- BARU: Tambahkan Arsip Trip
-    'orders' => 'dashboard/order_list.php',         
+    'trip_archive' => 'dashboard/trip_archive.php',        
     'profile' => 'dashboard/profile_settings.php',  
+    'provider_tickets' => 'dashboard/provider_tickets.php', // <-- TAMBAHAN UNTUK CHAT
 ];
 
 $content_path = 'pages/' . ($allowed_pages[$page] ?? $allowed_pages['summary']);
@@ -42,7 +44,6 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
     <title>Dashboard Provider - Open Trip</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <!-- Font Awesome untuk ikon arsip, dll -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         .sidebar {
@@ -78,7 +79,6 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                     </a>
                 </li>
 
-                <!-- Mengganti Manajemen Trip (parent) dengan item yang lebih spesifik -->
                 <li class="nav-item">
                     <a class="nav-link <?php echo ($page == 'trips' || $page == 'trip_create' || $page == 'trip_edit' ? 'active' : ''); ?>" href="/dashboard?p=trips">
                         <i class="bi bi-compass me-2"></i> Trip Aktif
@@ -86,7 +86,6 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                 </li>
                 
                 <li class="nav-item">
-                    <!-- BARU: Logika untuk Trip Arsip -->
                     <a class="nav-link <?php echo ($page == 'trip_archive' ? 'active' : ''); ?>" href="/dashboard?p=trip_archive">
                         <i class="bi bi-archive me-2"></i> Arsip Trip
                     </a>
@@ -95,6 +94,12 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                 <li class="nav-item">
                     <a class="nav-link <?php echo ($page == 'orders' ? 'active' : ''); ?>" href="/dashboard?p=orders">
                         <i class="bi bi-box-seam me-2"></i> Pemesanan
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link <?php echo ($page == 'provider_tickets' ? 'active' : ''); ?>" href="/dashboard?p=provider_tickets">
+                        <i class="bi bi-chat-left-text me-2"></i> Dukungan & Chat
                     </a>
                 </li>
                 <li class="nav-item">
@@ -113,13 +118,13 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
             <nav aria-label="breadcrumb">
               <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
-                <!-- Ubah tampilan breadcrumb agar lebih rapi -->
                 <li class="breadcrumb-item active" aria-current="page"><?php 
                     // Logika untuk menampilkan nama halaman yang lebih user-friendly
                     $breadcrumb_name = ucwords(str_replace('_', ' ', $page));
                     if ($page === 'trips') $breadcrumb_name = 'Trip Aktif';
                     if ($page === 'trip_archive') $breadcrumb_name = 'Arsip Trip';
                     if ($page === 'summary') $breadcrumb_name = 'Ringkasan';
+                    if ($page === 'provider_tickets') $breadcrumb_name = 'Dukungan & Chat'; // <-- TAMBAHAN BREADCRUMB
                     
                     echo $breadcrumb_name;
                 ?></li>
