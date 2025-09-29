@@ -26,6 +26,9 @@ $actual_provider_id = null; // ID Provider yang benar (Primary Key dari tabel 'p
 // LOGIKA KRUSIAL: MENDAPATKAN ID PROVIDER YANG BENAR
 // ----------------------------------------------------
 try {
+    // Perhatikan: Kita sekarang mengambil 'id' dari providers untuk $actual_provider_id, 
+    // tapi kita juga perlu 'verification_status' untuk cek di trip_create.php (Langkah sebelumnya).
+    // Walaupun di file proses ini tidak dipakai, logikanya tetap konsisten.
     $stmt_provider = $conn->prepare("SELECT id FROM providers WHERE user_id = ?");
     $stmt_provider->bind_param("i", $user_id_from_session);
     $stmt_provider->execute();
@@ -466,6 +469,49 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
     header("Location: /dashboard?p=trip_edit&id=" . $trip_id); 
     exit();
 }
+
+// ==========================================================
+// --- AKSI BARU: PENGAJUAN VERIFIKASI PROVIDER ---
+// ==========================================================
+elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'submit_for_verification') {
+        
+    $redirect_page = 'profile'; // Selalu redirect kembali ke halaman profil
+    $message = "Gagal mengajukan verifikasi.";
+    $message_type = "danger";
+    
+    // Ambil user_id dari sesi
+    $user_id = $_SESSION['user_id'];
+
+    try {
+        $stmt = $conn->prepare("UPDATE providers 
+                               SET verification_status = 'pending', updated_at = NOW() 
+                               WHERE user_id = ? 
+                               AND verification_status IN ('unverified', 'rejected')"); 
+        
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+
+        if ($stmt->affected_rows > 0) {
+            $message = "Pengajuan verifikasi berhasil dikirim! Admin akan meninjau data Anda.";
+            $message_type = "success";
+        } else {
+            // Ini terjadi jika status sudah 'pending' atau 'verified'
+            $message = "Pengajuan gagal. Status verifikasi Anda saat ini adalah 'pending' atau 'verified'. Harap tunggu respons Admin.";
+            $message_type = "info";
+        }
+        $stmt->close();
+        
+    } catch (Exception $e) {
+        $message = "Terjadi kesalahan sistem: " . $e->getMessage();
+    }
+    
+    // Set pesan di session dan redirect
+    $_SESSION['dashboard_message'] = $message;
+    $_SESSION['dashboard_message_type'] = $message_type;
+    header("Location: /dashboard?p=" . $redirect_page);
+    exit();
+}
+
 
 $conn->close();
 ?>
