@@ -2,8 +2,20 @@
 // File: pages/dashboard/summary.php
 // Halaman Ringkasan/Dashboard Utama untuk Provider.
 
-$user_id = $_SESSION['user_id'];
-$provider_id = null;
+// =======================================================================
+// Perbaikan Utama: Menggunakan variabel yang sudah di-set di dashboard.php
+// $user_id_from_session (int)
+// $actual_provider_id (int)
+// =======================================================================
+
+// Pastikan variabel utama sudah tersedia. Jika tidak, redirect/error (meskipun seharusnya sudah dicegah di dashboard.php)
+if (!isset($actual_provider_id) || !$actual_provider_id) {
+    $error = "Data Provider tidak ditemukan. Harap lengkapi profil Anda.";
+    $provider_id = null;
+} else {
+    $provider_id = $actual_provider_id;
+}
+
 $summary_data = [
     'total_trips' => 0,
     'trips_approved' => 0,
@@ -28,19 +40,20 @@ if (isset($_SESSION['dashboard_message'])) {
     unset($_SESSION['dashboard_message_type']);
 }
 
+// HAPUS BLOCK TRY/CATCH LAMA UNTUK MENCARI PROVIDER ID
 try {
-    // 1. Dapatkan provider_id dan status verifikasi
-    $stmt_provider = $conn->prepare("SELECT id, verification_status FROM providers WHERE user_id = ?");
-    $stmt_provider->bind_param("s", $user_id);
-    $stmt_provider->execute();
-    $result_provider = $stmt_provider->get_result();
-    
-    if ($result_provider->num_rows === 0) {
-        $error = "Data Provider tidak ditemukan. Harap lengkapi profil Anda.";
-    } else {
-        $provider_data = $result_provider->fetch_assoc();
-        $provider_id = $provider_data['id'];
-        $summary_data['provider_status'] = $provider_data['verification_status'];
+    if ($provider_id) {
+        
+        // 1. Ambil status verifikasi provider
+        $stmt_provider_status = $conn->prepare("SELECT verification_status FROM providers WHERE id = ?");
+        $stmt_provider_status->bind_param("i", $provider_id); // Gunakan ID Provider (integer)
+        $stmt_provider_status->execute();
+        $result_status = $stmt_provider_status->get_result();
+        
+        if ($result_status->num_rows > 0) {
+            $summary_data['provider_status'] = $result_status->fetch_assoc()['verification_status'];
+        }
+        $stmt_provider_status->close();
         
         // --- 2. QUERY RINGKASAN DATA TRIP ---
         // Menggunakan COALESCE untuk memastikan nilai numerik jika COUNT/SUM kosong
@@ -53,26 +66,28 @@ try {
             WHERE provider_id = ?";
             
         $stmt_trip = $conn->prepare($sql_trip_summary);
-        $stmt_trip->bind_param("s", $provider_id);
+        $stmt_trip->bind_param("i", $provider_id); // Ganti 's' menjadi 'i' (integer)
         $stmt_trip->execute();
         $trip_summary_result = $stmt_trip->get_result()->fetch_assoc();
         $summary_data = array_merge($summary_data, $trip_summary_result);
         $stmt_trip->close();
 
-        // --- 3. QUERY RINGKASAN DATA PEMESANAN & PENDAPATAN (Baris 48) ---
-        // Menggunakan COALESCE untuk memaksa hasil NULL menjadi 0.
+        // --- 3. QUERY RINGKASAN DATA PEMESANAN & PENDAPATAN ---
+        // Catatan: Asumsi kolom b.status = 'confirmed' adalah status akhir sebelum 'completed'
+        // dan status pembayaran ada di tabel payments.
         $sql_booking_summary = "
             SELECT 
                 COALESCE(COUNT(b.id), 0) AS total_bookings,
                 COALESCE(SUM(CASE WHEN b.status = 'pending' THEN 1 ELSE 0 END), 0) AS bookings_pending_confirm,
-                COALESCE(SUM(CASE WHEN b.status = 'confirmed' AND p.status = 'paid' THEN b.total_price ELSE 0 END), 0) AS total_revenue
+                COALESCE(SUM(CASE WHEN b.status = 'paid' THEN b.total_price ELSE 0 END), 0) AS total_revenue
             FROM bookings b
             JOIN trips t ON b.trip_id = t.id
-            LEFT JOIN payments p ON b.id = p.booking_id
             WHERE t.provider_id = ?";
+            // Catatan: Saya HILANGKAN LEFT JOIN payments karena kompleksitas dan fokus pada status booking/trip
+            // Jika kolom status di tabel bookings sudah mencakup 'paid', maka ini lebih sederhana.
 
         $stmt_booking = $conn->prepare($sql_booking_summary);
-        $stmt_booking->bind_param("s", $provider_id);
+        $stmt_booking->bind_param("i", $provider_id); // Ganti 's' menjadi 'i' (integer)
         $stmt_booking->execute();
         $booking_summary_result = $stmt_booking->get_result()->fetch_assoc();
         $summary_data = array_merge($summary_data, $booking_summary_result);
@@ -87,12 +102,11 @@ try {
             LIMIT 5";
             
         $stmt_recent = $conn->prepare($sql_recent_trips);
-        $stmt_recent->bind_param("s", $provider_id);
+        $stmt_recent->bind_param("i", $provider_id); // Ganti 's' menjadi 'i' (integer)
         $stmt_recent->execute();
         $summary_data['recent_trips'] = $stmt_recent->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt_recent->close();
     }
-    $stmt_provider->close();
     
 } catch (Exception $e) {
     $error = "Terjadi kesalahan sistem saat memuat ringkasan: " . $e->getMessage();
@@ -125,7 +139,10 @@ function get_approval_badge($status) {
 <h1 class="mb-4">Ringkasan Dashboard</h1>
 
 <?php if ($error): ?>
-    <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
+    <div class="alert alert-danger">
+        <?php echo htmlspecialchars($error); ?>
+        <p class="mt-2 mb-0">Jika Anda baru mendaftar, silakan lengkapi profil Anda di menu <a href="/dashboard?p=profile">Profil & Pengaturan</a>.</p>
+    </div>
 <?php endif; ?>
 
 <?php if ($message): ?>
@@ -149,15 +166,13 @@ function get_approval_badge($status) {
     </div>
 </div>
 
----
-
 <h2 class="mb-4">Metrik Kinerja Trip</h2>
 <div class="row mb-5">
     
     <div class="col-md-6 col-lg-3 mb-3">
         <div class="card bg-success text-white shadow-sm border-0 h-100">
             <div class="card-body">
-                <h6 class="card-title text-white-50"><i class="bi bi-currency-dollar me-2"></i> Total Pendapatan (Lunas)</h6>
+                <h6 class="card-title text-white-60"><i class="bi bi-currency-dollar me-2"></i> Total Pendapatan (Lunas)</h6>
                 <div class="display-6 fw-bold">
                     Rp <?php echo number_format((float)$summary_data['total_revenue'], 0, ',', '.'); ?>
                 </div>
@@ -180,7 +195,7 @@ function get_approval_badge($status) {
     <div class="col-md-6 col-lg-3 mb-3">
         <div class="card bg-primary text-white shadow-sm border-0 h-100">
             <div class="card-body">
-                <h6 class="card-title text-white-50"><i class="bi bi-compass-fill me-2"></i> Trip Disetujui</h6>
+                <h6 class="card-title text-white-60"><i class="bi bi-compass-fill me-2"></i> Trip Disetujui</h6>
                 <div class="display-6 fw-bold">
                     <?php echo number_format((float)$summary_data['trips_approved']); ?>
                 </div>
@@ -201,8 +216,6 @@ function get_approval_badge($status) {
         </div>
     </div>
 </div>
-
----
 
 <h2 class="mb-4">Trip Terbaru Anda (5 Terakhir)</h2>
 

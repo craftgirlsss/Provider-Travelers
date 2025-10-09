@@ -1,11 +1,27 @@
 <?php
 // File: pages/dashboard/trip_list.php
 
-$user_id_from_session = $_SESSION['user_id'];
-$actual_provider_id = null;
+// =======================================================================
+// Perbaikan Utama: Menggunakan variabel yang sudah di-set di dashboard.php
+// $user_id_from_session (int)
+// $actual_provider_id (int)
+// =======================================================================
+
+// Tambahkan inisialisasi untuk variabel $error agar tidak Undefined.
+$error = null;
+
+// Pastikan variabel utama sudah tersedia dari dashboard.php.
+if (!isset($user_id_from_session) || !$user_id_from_session || !isset($actual_provider_id) || !$actual_provider_id) {
+    // Fallback error, meskipun seharusnya dicegah di dashboard.php
+    $error = "Error Otorisasi: ID Pengguna atau Provider tidak tersedia.";
+    $provider_id_used = null;
+} else {
+    $provider_id_used = $actual_provider_id;
+}
+
+
 $verification_status = 'unverified'; // Default status
 $trips = [];
-$error = null;
 
 // Ambil pesan dari session (setelah create/edit/delete)
 $message = $_SESSION['dashboard_message'] ?? '';
@@ -15,39 +31,40 @@ unset($_SESSION['dashboard_message_type']);
 
 
 try {
-    // 1. Cari ID Provider dan Status Verifikasi (BARU DITAMBAHKAN)
-    $stmt_provider = $conn->prepare("SELECT id, verification_status FROM providers WHERE user_id = ?");
-    $stmt_provider->bind_param("i", $user_id_from_session);
-    $stmt_provider->execute();
-    $result_provider = $stmt_provider->get_result();
-    
-    if ($result_provider->num_rows > 0) {
-        $row = $result_provider->fetch_assoc();
-        $actual_provider_id = $row['id']; 
-        $verification_status = $row['verification_status']; // <-- BARU: Ambil status verifikasi
-    }
-    $stmt_provider->close();
-
-    // 2. Jika ID Provider ditemukan, lanjutkan ambil data trip
-    if ($actual_provider_id) {
-        $stmt = $conn->prepare("SELECT 
-                                id,
-                                title, 
-                                location AS location,
-                                start_date, 
-                                end_date, 
-                                max_participants,      
-                                booked_participants,
-                                price, 
-                                discount_price, 
-                                status,
-                                approval_status
-                            FROM trips 
-                            WHERE provider_id = ? 
-                            AND is_deleted = 0
-                            ORDER BY created_at DESC");
+    // 1. Cari Status Verifikasi Provider
+    if ($provider_id_used) {
+        $stmt_status = $conn->prepare("SELECT verification_status FROM providers WHERE id = ?");
+        $stmt_status->bind_param("i", $provider_id_used); // Gunakan ID provider (integer)
+        $stmt_status->execute();
+        $result_status = $stmt_status->get_result();
         
-        $stmt->bind_param("i", $actual_provider_id); 
+        if ($result_status->num_rows > 0) {
+            $verification_status = $result_status->fetch_assoc()['verification_status']; // <-- Ambil status verifikasi
+        }
+        $stmt_status->close();
+
+
+        // 2. Ambil data trip
+        $stmt = $conn->prepare("SELECT 
+                            id,
+                            uuid,       
+                            title, 
+                            location AS location,
+                            start_date, 
+                            end_date, 
+                            max_participants,      
+                            booked_participants,
+                            price, 
+                            discount_price, 
+                            status,
+                            approval_status
+                        FROM trips 
+                        WHERE provider_id = ?
+                        AND is_deleted = 0
+                        AND end_date >= CURDATE()
+                        ORDER BY created_at ASC");
+        
+        $stmt->bind_param("i", $provider_id_used); // Gunakan ID provider (integer)
         $stmt->execute();
         $result = $stmt->get_result();
         
@@ -56,7 +73,9 @@ try {
         }
         $stmt->close();
     } else {
-        $error = "Data provider Anda tidak ditemukan. Pastikan akun terdaftar di tabel providers.";
+        if (!$error) {
+             $error = "Data provider Anda tidak ditemukan. Pastikan akun terdaftar di tabel providers.";
+        }
     }
     
 } catch (Exception $e) {
@@ -136,7 +155,7 @@ function get_approval_badge($approval_status) {
                             <th>Judul & Tujuan</th>
                             <th>Jadwal</th>
                             <th>Harga</th>
-                            <th>Status Provider</th>
+                            <th>Jumlah</th>
                             <th>Status Admin</th>
                             <th class="text-center">Aksi</th>
                         </tr>
@@ -144,7 +163,11 @@ function get_approval_badge($approval_status) {
                     <tbody>
                         <?php foreach ($trips as $trip): ?>
                         <tr>
-                            <td><?php echo $trip['id']; ?></td>
+                            <td>
+                                <span title="<?php echo htmlspecialchars($trip['uuid']); ?>">
+                                    #<?php echo strtoupper(substr($trip['uuid'] ?? '', 0, 5)); ?>
+                                </span>
+                            </td>
                             <td>
                                 <strong><?php echo htmlspecialchars($trip['title']); ?></strong><br>
                                 <small class="text-muted"><?php echo htmlspecialchars($trip['location']); ?></small>
@@ -160,15 +183,13 @@ function get_approval_badge($approval_status) {
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php echo get_status_badge($trip['status']); ?>
-                                <br>
                                 <small class="text-muted"><?php echo $trip['booked_participants']; ?> / <?php echo $trip['max_participants']; ?> Kuota</small>
                             </td>
                             <td>
                                 <?php echo get_approval_badge($trip['approval_status'] ?? 'pending'); ?>
                             </td>
                             <td class="text-center">
-                                <a href="/dashboard?p=trip_edit&id=<?php echo $trip['id']; ?>" class="btn btn-sm btn-info text-white me-2" title="Edit Trip"><i class="bi bi-pencil"></i> Edit</a>
+                                <a href="/dashboard?p=trip_edit&id=<?php echo htmlspecialchars($trip['uuid']); ?>" class="btn btn-sm btn-info text-white me-2" title="Edit Trip"><i class="bi bi-pencil"></i> Edit</a>
                                 
                                 <button 
                                     type="button" 

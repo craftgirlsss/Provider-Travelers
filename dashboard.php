@@ -1,31 +1,128 @@
 <?php
 // File: dashboard.php (Root Folder)
 session_start();
-require_once __DIR__ . '/config/db_config.php';
+require_once __DIR__ . '/config/db_config.php'; 
+// Asumsi: db_config.php sudah me-load $conn
 
-// 1. Logic Perlindungan Halaman
-// Jika user belum login atau role bukan 'provider', redirect ke halaman login.
-if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'provider') {
+// Inisialisasi variabel otorisasi
+$user_uuid_from_session = $_SESSION['user_uuid'] ?? null;
+$user_role_from_session = $_SESSION['user_role'] ?? null;
+$user_id_from_session = null; // ID integer dari tabel users
+$actual_provider_id = null; // ID integer dari tabel providers
+
+// 1. Logic Perlindungan Halaman & Otorisasi
+if (!$user_uuid_from_session || $user_role_from_session !== 'provider') {
     $_SESSION['message'] = "Anda harus login sebagai Provider untuk mengakses Dashboard.";
+    $_SESSION['message_type'] = "danger";
+    // Hapus session yang mungkin salah
+    session_unset();
+    session_destroy();
+    session_start();
+    header("Location: /login");
+    exit();
+}
+
+// --- Ambil ID Integer (id) dan Provider ID dari UUID ---
+try {
+    // A. Ambil ID integer dari tabel users menggunakan UUID
+    $stmt_user = $conn->prepare("SELECT id FROM users WHERE uuid = ?");
+    $stmt_user->bind_param("s", $user_uuid_from_session); 
+    $stmt_user->execute();
+    $result_user = $stmt_user->get_result();
+    
+    if ($result_user->num_rows > 0) {
+        $user_id_from_session = $result_user->fetch_assoc()['id'];
+    }
+    $stmt_user->close();
+
+    if ($user_id_from_session) {
+        // B. Ambil provider_id dari tabel providers menggunakan user_id integer
+        $stmt_provider = $conn->prepare("SELECT id FROM providers WHERE user_id = ?");
+        // Gunakan binding "i" karena $user_id_from_session adalah integer (BIGINT)
+        $stmt_provider->bind_param("i", $user_id_from_session); 
+        $stmt_provider->execute();
+        $result_provider = $stmt_provider->get_result();
+        
+        if ($result_provider->num_rows > 0) {
+            $actual_provider_id = $result_provider->fetch_assoc()['id'];
+        }
+        $stmt_provider->close();
+    }
+
+} catch (Exception $e) {
+    // Jika ada error DB, anggap otorisasi gagal
+    $_SESSION['message'] = "Terjadi kesalahan otorisasi sistem. Silakan coba login lagi.";
     $_SESSION['message_type'] = "danger";
     header("Location: /login");
     exit();
 }
 
-// 2. Tentukan Konten yang Akan Dimuat
+// Final Cek: Pastikan semua ID valid
+if (!$user_id_from_session || !$actual_provider_id) {
+    $_SESSION['message'] = "Error otorisasi: Data Provider Anda tidak ditemukan. Harap lengkapi profil atau hubungi Admin.";
+    $_SESSION['message_type'] = "danger";
+    header("Location: /login");
+    exit();
+}
+
+// ==========================================================
+// <<< LOGIC PENTING UNTUK FILE PROCESS: START >>>
+// ==========================================================
+// Simpan ID yang sudah terverifikasi ke sesi agar file proses (trip, driver, departure) 
+// tidak perlu mengulang query DB dan otorisasi.
+$_SESSION['user_id'] = $user_id_from_session; 
+$_SESSION['actual_provider_id'] = $actual_provider_id;
+// ==========================================================
+// <<< LOGIC PENTING UNTUK FILE PROCESS: END >>>
+// ==========================================================
+
+// 2. LOGIC PENGAMBILAN NOTIFIKASI AKTIF (H-5 Reminder, dll.)
+$pending_notifications = [];
+try {
+    // Ambil notifikasi yang belum dibaca dan waktu tampilnya sudah terlewat
+    $stmt_notif = $conn->prepare("
+        SELECT id, message, link 
+        FROM provider_notifications 
+        WHERE provider_id = ? 
+          AND is_read = FALSE 
+          AND scheduled_at <= NOW()
+        ORDER BY scheduled_at ASC
+        LIMIT 5
+    ");
+    // Gunakan binding "i" untuk $actual_provider_id (integer)
+    $stmt_notif->bind_param("i", $actual_provider_id);
+    $stmt_notif->execute();
+    $pending_notifications = $stmt_notif->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_notif->close();
+} catch (Exception $e) {
+    // Jika ada error DB saat mengambil notif, biarkan $pending_notifications kosong.
+}
+// ------------------------------------------------------------------
+
+
+// 3. Tentukan Konten yang Akan Dimuat
 $page = $_GET['p'] ?? 'summary'; // Default ke halaman 'summary'
 
 // Peta file konten dashboard
 $allowed_pages = [
     'orders' => 'dashboard/order_list.php',
+    'booking_detail' => 'dashboard/booking_detail.php', 
     'booking_chat' => 'dashboard/booking_chat.php',
     'summary' => 'dashboard/summary.php',
     'trips' => 'dashboard/trip_list.php', 
     'trip_create' => 'dashboard/create_trip.php',
     'trip_edit' => 'dashboard/trip_edit.php', 
-    'trip_archive' => 'dashboard/trip_archive.php',        
+    'trip_archive' => 'dashboard/trip_archive.php',     
+    'departures' => 'dashboard/departure_schedule.php', // List Jadwal
+    'departure_create' => 'dashboard/departure_create.php', // Form Tambah Jadwal  
+    'driver_management' => 'dashboard/driver_list.php', // List Driver
+    'driver_create' => 'dashboard/driver_create.php', // Form Tambah Driver
+    'driver_edit' => 'dashboard/driver_edit.php', // Form Edit Driver
+    'vouchers' => 'dashboard/voucher_list.php', 
+    'voucher_create' => 'dashboard/voucher_create.php', 
+    'voucher_edit' => 'dashboard/voucher_edit.php',
     'profile' => 'dashboard/profile_settings.php',  
-    'provider_tickets' => 'dashboard/provider_tickets.php', // <-- TAMBAHAN UNTUK CHAT
+    'provider_tickets' => 'dashboard/provider_tickets.php', 
 ];
 
 $content_path = 'pages/' . ($allowed_pages[$page] ?? $allowed_pages['summary']);
@@ -84,16 +181,36 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                         <i class="bi bi-compass me-2"></i> Trip Aktif
                     </a>
                 </li>
+
+                <li class="nav-item">
+                    <a class="nav-link <?php echo ($page === 'departures' || $page === 'departure_create') ? 'active' : ''; ?>" href="/dashboard?p=departures">
+                        <i class="bi bi-clock-history me-2"></i>
+                        Jadwal Keberangkatan
+                    </a>
+                </li>
                 
                 <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'trip_archive' ? 'active' : ''); ?>" href="/dashboard?p=trip_archive">
-                        <i class="bi bi-archive me-2"></i> Arsip Trip
+                    <a class="nav-link <?php echo ($page === 'driver_management' || $page === 'driver_create' || $page === 'driver_edit') ? 'active' : ''; ?>" href="/dashboard?p=driver_management">
+                        <i class="bi bi-person-badge me-2"></i>
+                        Manajemen Driver
                     </a>
                 </li>
 
                 <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'orders' ? 'active' : ''); ?>" href="/dashboard?p=orders">
+                    <a class="nav-link <?php echo ($page == 'trip_archive' ? 'active' : ''); ?>" href="/dashboard?p=trip_archive">
+                        <i class="bi bi-archive me-2"></i> Riwayat Trip & Arsip
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link <?php echo ($page == 'orders' || $page == 'booking_detail' ? 'active' : ''); ?>" href="/dashboard?p=orders">
                         <i class="bi bi-box-seam me-2"></i> Pemesanan
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link <?php echo ($page == 'vouchers' || $page == 'voucher_create' || $page == 'voucher_edit' ? 'active' : ''); ?>" href="/dashboard?p=vouchers">
+                        <i class="bi bi-tags-fill me-2"></i> Voucher & Diskon
                     </a>
                 </li>
 
@@ -122,9 +239,13 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                     // Logika untuk menampilkan nama halaman yang lebih user-friendly
                     $breadcrumb_name = ucwords(str_replace('_', ' ', $page));
                     if ($page === 'trips') $breadcrumb_name = 'Trip Aktif';
-                    if ($page === 'trip_archive') $breadcrumb_name = 'Arsip Trip';
+                    if ($page === 'trip_archive') $breadcrumb_name = 'Riwayat Trip & Arsip';
                     if ($page === 'summary') $breadcrumb_name = 'Ringkasan';
-                    if ($page === 'provider_tickets') $breadcrumb_name = 'Dukungan & Chat'; // <-- TAMBAHAN BREADCRUMB
+                    if ($page === 'provider_tickets') $breadcrumb_name = 'Dukungan & Chat'; 
+                    if ($page === 'orders') $breadcrumb_name = 'Daftar Pemesanan';
+                    if ($page === 'booking_detail') $breadcrumb_name = 'Detail Pemesanan';
+                    if ($page === 'driver_management') $breadcrumb_name = 'Manajemen Driver';
+                    if ($page === 'driver_create') $breadcrumb_name = 'Tambah Driver';
                     
                     echo $breadcrumb_name;
                 ?></li>
@@ -132,6 +253,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
             </nav>
             
             <?php 
+            // 4. Tampilkan Pesan Sesi Umum
             if (isset($_SESSION['dashboard_message'])): ?>
                 <div class="alert alert-<?php echo $_SESSION['dashboard_message_type']; ?> alert-dismissible fade show" role="alert">
                     <?php echo htmlspecialchars($_SESSION['dashboard_message']); ?>
@@ -143,10 +265,58 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
             endif;
             ?>
 
-            <?php require_once $content_path; ?> 
+            <?php if (!empty($pending_notifications)): ?>
+                <?php foreach ($pending_notifications as $notif): ?>
+                    <div class="alert alert-warning alert-dismissible fade show shadow-sm" role="alert" id="notif-<?php echo $notif['id']; ?>">
+                        <p class="mb-0">
+                            <i class="bi bi-bell-fill me-2"></i>
+                            <?php echo htmlspecialchars($notif['message']); ?>
+                            <a href="<?php echo htmlspecialchars($notif['link']); ?>" class="alert-link ms-2 fw-bold">
+                                [Tinjau Sekarang]
+                            </a>
+                        </p>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" 
+                                onclick="markNotificationAsRead(<?php echo $notif['id']; ?>)"></button>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+            
+            <?php require_once $content_path; // 6. Load konten halaman utama ?> 
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+    function markNotificationAsRead(notifId) {
+        // Hapus notifikasi secara visual
+        const alertElement = document.getElementById('notif-' + notifId);
+        if (alertElement) {
+            // Hilangkan tampilan alert dengan transisi (opsional)
+            alertElement.classList.add('fade-out'); 
+            setTimeout(() => {
+                alertElement.remove();
+            }, 300);
+        }
+
+        // KIRIM AJAX REQUEST KE SERVER UNTUK UPDATE DB
+        fetch('/process/notif_process.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            // Kirim ID Notifikasi dan Aksi
+            body: 'action=read&notif_id=' + notifId
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('Notifikasi #' + notifId + ' berhasil ditandai sudah dibaca.');
+            } else {
+                console.error('Gagal menandai notifikasi di DB:', data.message);
+                // Jika gagal di DB, mungkin munculkan kembali alert di UI
+            }
+        })
+        .catch(error => console.error('Error saat mengirim AJAX:', error));
+    }
+    </script>
 </body>
 </html>

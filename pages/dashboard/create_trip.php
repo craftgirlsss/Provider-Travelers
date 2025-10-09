@@ -8,7 +8,7 @@ unset($_SESSION['form_message_type']);
 ?>
 
 <h1 class="mb-4">Buat Trip Baru</h1>
-<p class="text-muted">Isi detail perjalanan Anda. Trip ini akan dipublikasikan setelah Anda menyimpannya.</p>
+<p class="text-muted">Isi detail perjalanan Anda. Trip ini akan diajukan untuk moderasi setelah Anda menyimpannya.</p>
 
 <?php if ($message): ?>
     <div class="alert alert-<?php echo htmlspecialchars($message_type); ?> alert-dismissible fade show" role="alert">
@@ -32,8 +32,8 @@ unset($_SESSION['form_message_type']);
                     </div>
 
                     <div class="mb-3">
-                        <label for="destination" class="form-label">Tujuan Utama <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="destination" name="destination" required placeholder="Contoh: Gunung Bromo, Pulau Seribu">
+                        <label for="location" class="form-label">Tujuan Utama (Lokasi di Tabel) <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="location" name="location" required placeholder="Contoh: Gunung Bromo, Pulau Seribu">
                     </div>
 
                     <div class="mb-3">
@@ -44,6 +44,36 @@ unset($_SESSION['form_message_type']);
                     <div class="mb-3">
                         <label for="duration" class="form-label">Durasi (Contoh: 3 Hari 2 Malam) <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="duration" name="duration" required placeholder="Contoh: 3D2N">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-dark">Titik Kumpul & Jadwal</div>
+                <div class="card-body">
+                    <h6 class="mb-3">Lokasi Titik Kumpul</h6>
+                    <div class="mb-3">
+                        <label for="gathering_point_name" class="form-label">Nama Titik Kumpul <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="gathering_point_name" name="gathering_point_name" required 
+                               placeholder="Contoh: Stasiun Pasar Senen Jakarta / Bandara Juanda Surabaya">
+                    </div>
+                    <div class="mb-3">
+                        <label for="gathering_point_url" class="form-label">URL Google Maps Titik Kumpul <span class="text-danger">*</span></label>
+                        <input type="url" class="form-control" id="gathering_point_url" name="gathering_point_url" required 
+                               placeholder="Paste URL Google Maps di sini">
+                        <small class="form-text text-muted">Contoh: https://maps.app.goo.gl/...</small>
+                    </div>
+
+                    <h6 class="mt-4 mb-3">Waktu Pelaksanaan</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="departure_time" class="form-label">Estimasi Jam Berangkat <span class="text-danger">*</span></label>
+                            <input type="time" class="form-control" id="departure_time" name="departure_time" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="return_time" class="form-label">Estimasi Jam Pulang <span class="text-danger">*</span></label>
+                            <input type="time" class="form-control" id="return_time" name="return_time" required>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -62,8 +92,8 @@ unset($_SESSION['form_message_type']);
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label for="max_quota" class="form-label">Kuota Maksimal Peserta <span class="text-danger">*</span></label>
-                        <input type="number" class="form-control" id="max_quota" name="max_quota" required min="1" placeholder="Masukkan angka">
+                        <label for="max_participants" class="form-label">Kuota Maksimal Peserta <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="max_participants" name="max_participants" required min="1" placeholder="Masukkan angka">
                     </div>
                 </div>
             </div>
@@ -87,24 +117,35 @@ unset($_SESSION['form_message_type']);
             </div>
 
             <div class="card mb-4">
-                <div class="card-header bg-info text-white">Media & Status</div>
+                <div class="card-header bg-info text-white">Media Trip</div>
                 <div class="card-body">
                     <div class="mb-3">
                         <label for="main_image" class="form-label">Foto Utama Trip <span class="text-danger">*</span></label>
                         <input type="file" class="form-control" id="main_image" name="main_image" accept="image/*" required>
-                        <small class="form-text text-muted">Format: JPG, PNG. Max 2MB.</small>
+                        <small class="form-text text-muted">Hanya satu file, dijadikan cover.</small>
                     </div>
 
+                    <div class="mb-3">
+                        <label for="additional_images" class="form-label">Foto Tambahan (Opsional)</label>
+                        <input type="file" class="form-control" id="additional_images" name="additional_images[]" accept="image/*" multiple>
+                        <small class="form-text text-muted">Pilih beberapa foto tujuan wisata atau banner sekaligus (Max 5 file).</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">Status</div>
+                <div class="card-body">
                     <div class="mb-3">
                         <label for="status" class="form-label">Status Awal Trip</label>
                         <select class="form-select" id="status" name="status" required>
                             <option value="draft" selected>Draft (Belum Dipublikasikan)</option>
-                            <option value="published">Published (Langsung Aktif)</option>
+                            <option value="available">Available (Siap Dipesan, setelah disetujui Admin)</option>
                         </select>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    <button type="submit" class="btn btn-primary btn-lg w-100 mt-3"><i class="bi bi-save me-2"></i> Simpan & Publikasikan Trip</button>
+    <button type="submit" class="btn btn-primary btn-lg w-100 mt-3"><i class="bi bi-save me-2"></i> Ajukan Trip untuk Moderasi</button>
 </form>

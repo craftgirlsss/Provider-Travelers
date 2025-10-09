@@ -2,9 +2,21 @@
 // File: pages/dashboard/profile_settings.php
 // Di-include oleh dashboard.php
 
-$user_id_from_session = $_SESSION['user_id'];
+// MENGHILANGKAN: $user_id_from_session = $_SESSION['user_id'];
+// MENGGUNAKAN: Variabel yang sudah tersedia dari dashboard.php
+// $user_id_from_session (int)
+// $actual_provider_id (int)
+// Jika Anda mengikuti langkah sebelumnya, variabel ini sudah ada di sini.
+
+if (!isset($user_id_from_session) || !$user_id_from_session) {
+    // Fallback jika dashboard.php gagal setting ID. Seharusnya tidak terjadi.
+    $error = "Error Otorisasi: ID Pengguna tidak tersedia.";
+}
+
+
 $provider_data = [];
 $user_data = [];
+$bank_list = [];
 $error = null;
 
 // Default Status Verifikasi
@@ -12,30 +24,33 @@ $verification_status = 'unverified';
 $verification_note = '';
 
 // 1. Ambil Data User (Nama, Email)
-try {
-    $stmt_user = $conn->prepare("SELECT name, email FROM users WHERE id = ?");
-    $stmt_user->bind_param("i", $user_id_from_session);
-    $stmt_user->execute();
-    $result_user = $stmt_user->get_result();
-    if ($result_user->num_rows > 0) {
-        $user_data = $result_user->fetch_assoc();
+if (!$error) {
+    try {
+        // Query menggunakan $user_id_from_session yang sudah divalidasi
+        $stmt_user = $conn->prepare("SELECT name, email FROM users WHERE id = ?");
+        $stmt_user->bind_param("i", $user_id_from_session); // ID integer
+        $stmt_user->execute();
+        $result_user = $stmt_user->get_result();
+        if ($result_user->num_rows > 0) {
+            $user_data = $result_user->fetch_assoc();
+        }
+        $stmt_user->close();
+    } catch (Exception $e) {
+        $error = "Gagal memuat data pengguna: " . $e->getMessage();
     }
-    $stmt_user->close();
-} catch (Exception $e) {
-    $error = "Gagal memuat data pengguna: " . $e->getMessage();
 }
 
-// 2. Ambil Data Provider (Perusahaan, Status Verifikasi)
+// 2. Ambil Data Provider (Termasuk Kolom Bank BARU)
 if (!$error) {
     try {
         $stmt_provider = $conn->prepare("SELECT 
             id, entity_type, company_name, owner_name, business_license_path, 
-            ktp_path, company_logo_path, /* <-- BARU: Logo Path */
-            address, rt, rw, phone_number, postal_code, 
-            province, city, district, village, verification_status, verification_note
+            ktp_path, company_logo_path, address, rt, rw, phone_number, postal_code, 
+            province, city, district, village, verification_status, verification_note,
+            bank_name, bank_account_number, bank_account_name 
         FROM providers WHERE user_id = ?");
         
-        $stmt_provider->bind_param("i", $user_id_from_session);
+        $stmt_provider->bind_param("i", $user_id_from_session); // ID integer
         $stmt_provider->execute();
         $result_provider = $stmt_provider->get_result();
         
@@ -44,8 +59,8 @@ if (!$error) {
             $verification_status = $provider_data['verification_status'];
             $verification_note = htmlspecialchars($provider_data['verification_note'] ?? '');
         } else {
-            // Ini seharusnya tidak terjadi jika provider sudah login, tapi jaga-jaga
-            $error = "Data provider tidak ditemukan. Hubungi Admin.";
+            // Ini akan terdeteksi di dashboard.php, tapi tetap sebagai pencegahan
+            $error = "Data provider tidak ditemukan. Hubungi Admin."; 
         }
         $stmt_provider->close();
     } catch (Exception $e) {
@@ -53,7 +68,22 @@ if (!$error) {
     }
 }
 
-// Fungsi Pembantu untuk Badge Verifikasi
+// 3. Ambil Daftar Bank
+if (!$error) {
+    try {
+        $result_banks = $conn->query("SELECT bank_name FROM bank_list ORDER BY bank_name ASC");
+        if ($result_banks) {
+            while ($row = $result_banks->fetch_assoc()) {
+                $bank_list[] = $row['bank_name'];
+            }
+        }
+    } catch (Exception $e) {
+        $error_bank = "Gagal memuat daftar bank: " . $e->getMessage();
+    }
+}
+
+
+// Fungsi Pembantu untuk Badge Verifikasi (Dibiarkan sama)
 function get_verification_badge($status) {
     switch ($status) {
         case 'verified': return '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Disetujui</span>';
@@ -64,9 +94,16 @@ function get_verification_badge($status) {
     }
 }
 
-// Cek apakah semua field wajib sudah terisi (asumsi sederhana)
-// Provider harus mengisi setidaknya Nama Perusahaan dan Alamat sebelum bisa mengajukan.
-$is_profile_complete = !empty($provider_data['company_name']) && !empty($provider_data['address']);
+// Cek apakah semua field wajib sudah terisi
+$required_fields = ['company_name', 'owner_name', 'phone_number', 'address', 'postal_code', 'province', 'city', 'district', 'village', 'entity_type']; // Menambahkan owner_name, phone_number, entity_type
+$is_profile_complete = true;
+foreach ($required_fields as $field) {
+    if (empty($provider_data[$field])) {
+        $is_profile_complete = false;
+        break;
+    }
+}
+
 $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
 
 ?>
@@ -91,15 +128,22 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
         <?php endif; ?>
 
         <?php if ($verification_status === 'unverified' || $verification_status === 'rejected'): ?>
-            <?php if ($is_profile_complete): ?>
-                <form action="/process/trip_process" method="POST" onsubmit="return confirm('Anda yakin ingin mengajukan verifikasi? Pastikan semua data sudah benar.');">
+            <?php 
+                // Cek dokumen wajib (KTP dan Izin jika Company)
+                $has_ktp = !empty($provider_data['ktp_path']);
+                $has_license = $provider_data['entity_type'] === 'umkm' || !empty($provider_data['business_license_path']);
+                $is_ready_to_submit = $is_profile_complete && $has_ktp && $has_license;
+            ?>
+
+            <?php if ($is_ready_to_submit): ?>
+                <form action="/process/profile_process" method="POST" onsubmit="return confirm('Anda yakin ingin mengajukan verifikasi? Pastikan semua data sudah benar.');">
                     <input type="hidden" name="action" value="submit_for_verification">
                     <button type="submit" class="btn btn-warning text-dark">
                         <i class="bi bi-send-fill me-2"></i> Ajukan Verifikasi
                     </button>
                 </form>
             <?php else: ?>
-                <button type="button" class="btn btn-secondary" disabled>Lengkapi Data Dulu</button>
+                <button type="button" class="btn btn-secondary" disabled data-bs-toggle="tooltip" title="Lengkapi data profil, KTP, dan Izin Usaha (jika PT/CV) terlebih dahulu.">Lengkapi Data Dulu</button>
             <?php endif; ?>
         <?php endif; ?>
 
@@ -189,8 +233,56 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
                 </div>
             </div>
 
-            <hr>
+        </div>
+    </div>
+    
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-secondary text-white">
+            <i class="bi bi-bank me-2"></i> Informasi Rekening Bank
+        </div>
+        <div class="card-body">
+            <?php if (!empty($error_bank)): ?>
+                <div class="alert alert-warning">
+                    <?php echo htmlspecialchars($error_bank); ?>
+                </div>
+            <?php endif; ?>
+
+            <div class="mb-3">
+                <label for="bank_name" class="form-label">Nama Bank</label>
+                <select class="form-select" id="bank_name" name="bank_name">
+                    <option value="">-- Pilih Bank --</option>
+                    <?php foreach ($bank_list as $bank): ?>
+                        <option value="<?php echo htmlspecialchars($bank); ?>"
+                            <?php echo (isset($provider_data['bank_name']) && $provider_data['bank_name'] === $bank ? 'selected' : ''); ?>>
+                            <?php echo htmlspecialchars($bank); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <small class="text-muted">Opsional, tapi wajib diisi jika ingin menerima pembayaran.</small>
+            </div>
             
+            <div class="mb-3">
+                <label for="bank_account_number" class="form-label">Nomor Rekening</label>
+                <input type="text" class="form-control" id="bank_account_number" name="bank_account_number"
+                    value="<?php echo htmlspecialchars($provider_data['bank_account_number'] ?? ''); ?>"
+                    placeholder="Masukkan Nomor Rekening">
+            </div>
+
+            <div class="mb-3">
+                <label for="bank_account_name" class="form-label">Nama Pemilik Rekening</label>
+                <input type="text" class="form-control" id="bank_account_name" name="bank_account_name"
+                    value="<?php echo htmlspecialchars($provider_data['bank_account_name'] ?? ''); ?>"
+                    placeholder="Masukkan Nama Pemilik Rekening">
+                <small class="form-text text-muted">Nama ini harus sesuai dengan nama di rekening bank.</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-info text-white">
+            <i class="bi bi-geo-alt me-2"></i> Alamat Perusahaan / Usaha
+        </div>
+        <div class="card-body">
             <h6 class="mt-4 mb-3">Alamat Perusahaan / Usaha (*):</h6>
             <div class="mb-3">
                 <label for="address" class="form-label">Jalan dan Detail Lainnya (*)</label>
@@ -233,7 +325,7 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
         </div>
     </div>
     
-    <button type="submit" class="btn btn-success btn-lg"><i class="bi bi-save me-2"></i> Simpan Perubahan Profil</button>
+    <button type="submit" class="btn btn-success btn-lg mb-5"><i class="bi bi-save me-2"></i> Simpan Perubahan Profil</button>
 </form>
 
 <script>
@@ -245,24 +337,29 @@ document.addEventListener('DOMContentLoaded', function() {
     function toggleCompanyFields() {
         const isCompany = entityTypeSelect.value === 'company';
         
-        // Tampilkan/Sembunyikan Field PT/CV
         companyFieldsDiv.style.display = isCompany ? 'block' : 'none';
         
-        // Atur atribut 'required' pada field Surat Izin
         if (isCompany) {
-            // Jika memilih Company, field NIB/SIUP wajib diisi jika belum ada data path
-            const hasExistingLicense = "<?php echo !empty($provider_data['business_license_path']); ?>";
-            businessLicenseFile.required = hasExistingLicense === '1' ? false : true;
+            // Cek apakah sudah ada lisensi lama
+            const hasExistingLicense = "<?php echo (int)!empty($provider_data['business_license_path']); ?>"; 
+            
+            // Jika belum ada lisensi dan tidak ada file baru di-upload, maka wajib.
+            // Tapi karena file input bisa di-skip, kita biarkan logic required di server side (profile_process.php)
+            // Cukup atur di sini untuk visualisasi (atau tinggalkan kosong jika Anda mengandalkan server)
+            businessLicenseFile.required = hasExistingLicense === '1' ? false : true; 
+
         } else {
-            // Jika memilih UMKM, field tidak wajib
             businessLicenseFile.required = false;
         }
     }
 
-    // Panggil saat halaman dimuat
     toggleCompanyFields();
-
-    // Panggil saat dropdown berubah
     entityTypeSelect.addEventListener('change', toggleCompanyFields);
+
+    // Bootstrap Tooltip initialization (opsional, jika Anda menggunakan Bootstrap 5)
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl)
+    })
 });
 </script>

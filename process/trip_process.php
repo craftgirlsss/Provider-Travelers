@@ -65,16 +65,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
 
     $errors = [];
 
-    // Ambil semua input
+    // Ambil semua input (TERMASUK YANG BARU)
     $title = trim($_POST['title'] ?? '');
-    $location = trim($_POST['destination'] ?? '');
+    $location = trim($_POST['location'] ?? ''); // Perbaiki: gunakan 'location'
     $description = trim($_POST['description'] ?? '');
     $duration = trim($_POST['duration'] ?? '');
+    
+    // KOLOM BARU
+    $gathering_point_name = trim($_POST['gathering_point_name'] ?? '');
+    $gathering_point_url = trim($_POST['gathering_point_url'] ?? '');
+    $departure_time = trim($_POST['departure_time'] ?? ''); // Input TIME
+    $return_time = trim($_POST['return_time'] ?? '');       // Input TIME
 
     $raw_start_date = trim($_POST['start_date'] ?? '');
     $raw_end_date = trim($_POST['end_date'] ?? '');
 
-    // Validasi tanggal (gunakan try-catch)
+    // Validasi tanggal
+    // ... [Logika Validasi Tanggal tidak berubah] ...
     $start_date = '';
     $end_date = '';
 
@@ -83,7 +90,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
             $start_date_obj = new DateTime($raw_start_date);
             $start_date = $start_date_obj->format('Y-m-d');
         } catch (Exception $e) {
-            $errors[] = "Format tanggal mulai tidak valid. Gunakan format YYYY-MM-DD.";
+            $errors[] = "Format tanggal mulai tidak valid.";
         }
     }
 
@@ -92,60 +99,120 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
             $end_date_obj = new DateTime($raw_end_date);
             $end_date = $end_date_obj->format('Y-m-d');
         } catch (Exception $e) {
-            $errors[] = "Format tanggal berakhir tidak valid. Gunakan format YYYY-MM-DD.";
+            $errors[] = "Format tanggal berakhir tidak valid.";
         }
     }
 
-    $max_quota = (int)($_POST['max_quota'] ?? 0);
+
+    $max_quota = (int)($_POST['max_participants'] ?? 0); // Perbaiki: gunakan 'max_participants'
     $price = (float)($_POST['price'] ?? 0);
     $discount_price = (float)($_POST['discount_price'] ?? 0);
     $status = $_POST['status'] ?? 'draft';
     $booked_participants = 0;
+    $approval_status = 'pending'; // Default saat create
 
-    // Validasi input wajib
+    // Validasi input wajib (TERMASUK YANG BARU)
     if (empty($title) || empty($location) || empty($description) || empty($duration) ||
-        empty($start_date) || empty($end_date) || $max_quota < 1 || $price <= 0) {
+        empty($start_date) || empty($end_date) || $max_quota < 1 || $price <= 0 ||
+        empty($gathering_point_name) || empty($gathering_point_url) || 
+        empty($departure_time) || empty($return_time)) {
         $errors[] = "Semua kolom dengan tanda (*) wajib diisi dengan benar.";
     }
 
     if ($discount_price > 0 && $discount_price >= $price) {
         $errors[] = "Harga diskon harus lebih rendah dari harga normal.";
     }
+    
+    // ==========================================================
+    // --- PROSES UPLOAD GAMBAR UTAMA ---
+    // ==========================================================
+    $main_image_path = null;
+    $upload_dir = __DIR__ . '/../uploads/trips/';
+    $allowed_types = ['image/jpeg', 'image/png', 'image/jpg'];
+    $max_size = 2 * 1024 * 1024; // 2MB
+    
+    // Pastikan folder upload ada
+    if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
 
-    // Upload Gambar
-    $image_path = null;
 
     if (isset($_FILES['main_image']) && $_FILES['main_image']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['main_image'];
-        $allowed_types = ['image/jpeg', 'image/png', 'image/jpg'];
-        $max_size = 2 * 1024 * 1024; // 2MB
-
+        // ... [Logika Validasi & Upload Gambar Utama] ...
         if (!in_array($file['type'], $allowed_types)) {
-            $errors[] = "Format file gambar tidak didukung (gunakan JPG atau PNG).";
+            $errors[] = "Format file gambar utama tidak didukung.";
         } elseif ($file['size'] > $max_size) {
-            $errors[] = "Ukuran file gambar melebihi batas 2MB.";
+            $errors[] = "Ukuran file gambar utama melebihi batas 2MB.";
         } else {
-            $upload_dir = __DIR__ . '/../uploads/trips/';
-            if (!is_dir($upload_dir)) {
-                mkdir($upload_dir, 0777, true);
-            }
-
             $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            $new_file_name = uniqid('trip_') . '.' . $file_extension;
+            $new_file_name = uniqid('trip_main_') . '.' . $file_extension;
             $destination_path = $upload_dir . $new_file_name;
 
             if (move_uploaded_file($file['tmp_name'], $destination_path)) {
-                $image_path = 'uploads/trips/' . $new_file_name;
+                $main_image_path = 'uploads/trips/' . $new_file_name;
             } else {
-                $errors[] = "Gagal memindahkan file gambar ke folder upload.";
+                $errors[] = "Gagal memindahkan file gambar utama.";
             }
         }
     } else {
         $errors[] = "Gambar utama trip wajib diupload.";
     }
 
+    // ==========================================================
+    // --- PROSES UPLOAD GAMBAR TAMBAHAN (Multiple) ---
+    // ==========================================================
+    $additional_images = [];
+    if (isset($_FILES['additional_images']) && count($_FILES['additional_images']['name']) > 0) {
+        $file_array = $_FILES['additional_images'];
+        $num_files = count($file_array['name']);
+        
+        // Batasi jumlah file tambahan
+        if ($num_files > 5) {
+            $errors[] = "Maksimal hanya 5 foto tambahan yang diperbolehkan.";
+            $num_files = 5; // Potong loop jika terlalu banyak
+        }
+
+        for ($i = 0; $i < $num_files; $i++) {
+            if ($file_array['error'][$i] === UPLOAD_ERR_OK) {
+                $file_tmp_name = $file_array['tmp_name'][$i];
+                $file_type = $file_array['type'][$i];
+                $file_size = $file_array['size'][$i];
+
+                if (!in_array($file_type, $allowed_types)) {
+                    $errors[] = "Format file gambar tambahan ke-" . ($i+1) . " tidak didukung.";
+                    continue;
+                }
+                if ($file_size > $max_size) {
+                    $errors[] = "Ukuran file gambar tambahan ke-" . ($i+1) . " melebihi batas 2MB.";
+                    continue;
+                }
+
+                $file_extension = pathinfo($file_array['name'][$i], PATHINFO_EXTENSION);
+                $new_file_name = uniqid('trip_add_') . '_' . ($i + 1) . '.' . $file_extension;
+                $destination_path = $upload_dir . $new_file_name;
+                
+                if (move_uploaded_file($file_tmp_name, $destination_path)) {
+                    $additional_images[] = 'uploads/trips/' . $new_file_name;
+                } else {
+                    $errors[] = "Gagal memindahkan file gambar tambahan ke-" . ($i+1) . ".";
+                }
+            }
+        }
+    }
+
+
     // Jika error, kembali ke form
     if (!empty($errors)) {
+        // Hapus gambar utama yang mungkin sudah terupload sebelum error validasi
+        if ($main_image_path && file_exists(__DIR__ . '/../' . $main_image_path)) {
+            unlink(__DIR__ . '/../' . $main_image_path);
+        }
+        // Hapus gambar tambahan yang mungkin sudah terupload
+        foreach ($additional_images as $path) {
+            if (file_exists(__DIR__ . '/../' . $path)) {
+                unlink(__DIR__ . '/../' . $path);
+            }
+        }
+
         $_SESSION['dashboard_message'] = implode("<br>", $errors);
         $_SESSION['dashboard_message_type'] = "danger";
         header("Location: /dashboard?p=trip_create");
@@ -156,24 +223,33 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
     $conn->begin_transaction();
 
     try {
+        // Query dengan 17 placeholders (?)
         $stmt = $conn->prepare("INSERT INTO trips (
-            provider_id, title, description, duration, location, price, 
-            max_participants, booked_participants, start_date, end_date, 
-            status, discount_price
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-        $stmt->bind_param("issssdiisssd",
-            $actual_provider_id, // <-- PERBAIKAN: Menggunakan ID Provider yang BENAR!
+            provider_id, title, description, duration, location, 
+            gathering_point_name, gathering_point_url, departure_time, return_time, 
+            price, max_participants, booked_participants, start_date, end_date, 
+            status, approval_status, discount_price
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        
+        // Tipe Data Bind (17 parameter):
+        // i s s s s s s s s d i i s s s s d
+        $stmt->bind_param("issssssssdiissdsd", // <--- Ganti string bind di sini
+            $actual_provider_id,
             $title,
             $description,
             $duration,
             $location,
+            $gathering_point_name,
+            $gathering_point_url,
+            $departure_time,
+            $return_time,
             $price,
             $max_quota,
             $booked_participants,
             $start_date,
             $end_date,
             $status,
+            $approval_status,
             $discount_price
         );
 
@@ -181,18 +257,30 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
             $trip_id = $conn->insert_id;
             $stmt->close();
 
-            // Simpan gambar ke tabel trip_images
-            if ($image_path) {
+            // Simpan Gambar Utama (is_main = 1)
+            if ($main_image_path) {
                 $is_main = 1;
                 $stmt_img = $conn->prepare("INSERT INTO trip_images (trip_id, image_url, is_main) VALUES (?, ?, ?)");
-                $stmt_img->bind_param("isi", $trip_id, $image_path, $is_main);
+                $stmt_img->bind_param("isi", $trip_id, $main_image_path, $is_main);
                 $stmt_img->execute();
                 $stmt_img->close();
             }
 
+            // Simpan Gambar Tambahan (is_main = 0)
+            if (!empty($additional_images)) {
+                $is_main = 0;
+                $stmt_add_img = $conn->prepare("INSERT INTO trip_images (trip_id, image_url, is_main) VALUES (?, ?, ?)");
+                foreach ($additional_images as $path) {
+                    $stmt_add_img->bind_param("isi", $trip_id, $path, $is_main);
+                    $stmt_add_img->execute();
+                }
+                $stmt_add_img->close();
+            }
+
+
             $conn->commit();
 
-            $_SESSION['dashboard_message'] = "Trip baru '$title' berhasil dibuat.";
+            $_SESSION['dashboard_message'] = "Trip baru '$title' berhasil diajukan untuk moderasi.";
             $_SESSION['dashboard_message_type'] = "success";
             header("Location: /dashboard?p=trips");
             exit();
@@ -202,8 +290,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
 
     } catch (Exception $e) {
         $conn->rollback();
-        if ($image_path && file_exists(__DIR__ . '/../' . $image_path)) {
-            unlink(__DIR__ . '/../' . $image_path);
+        
+        // Hapus semua file yang berhasil diupload jika transaksi gagal
+        $all_uploaded_files = array_merge((array)$main_image_path, $additional_images);
+        foreach ($all_uploaded_files as $path) {
+            if ($path && file_exists(__DIR__ . '/../' . $path)) {
+                unlink(__DIR__ . '/../' . $path);
+            }
         }
 
         $_SESSION['dashboard_message'] = "Terjadi kesalahan sistem: " . $e->getMessage();

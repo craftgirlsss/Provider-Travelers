@@ -15,11 +15,11 @@ switch ($path) {
         require __DIR__ . '/pages/forgot_password.php';
         break;
         
-    case 'otp-confirm': // <--- Rute Baru untuk konfirmasi OTP
+    case 'otp-confirm':
         require __DIR__ . '/pages/otp_confirm.php';
         break;
 
-    case 'new-password': // <--- Rute Baru untuk set password baru
+    case 'new-password':
         require __DIR__ . '/pages/new_password.php';
         break;
     
@@ -27,15 +27,7 @@ switch ($path) {
         // Ini adalah rute yang seharusnya memuat dashboard.php
         require __DIR__ . '/dashboard.php';
         break;
-
-    case 'process/booking_chat_process':
-        require __DIR__ . '/process/booking_chat_process.php';
-        break;
         
-    case 'process/profile_process': // <--- Rute BARU untuk Profile & Settings
-        require __DIR__ . '/process/profile_process.php';
-        break;
-
     // --- Process/Logic ---
     case 'process/login_process':
         require __DIR__ . '/process/login_process.php';
@@ -45,7 +37,7 @@ switch ($path) {
         require __DIR__ . '/process/register_process.php';
         break;
     
-    case 'process/auth_process': // <--- Rute Baru untuk semua logic OTP/Reset
+    case 'process/auth_process':
         require __DIR__ . '/process/auth_process.php';
         break;
 
@@ -53,8 +45,28 @@ switch ($path) {
         require __DIR__ . '/process/logout_process.php';
         break;
 
-    case 'process/trip_process': // <--- Rute Baru untuk semua logic Trip
+    case 'process/trip_process':
         require __DIR__ . '/process/trip_process.php';
+        break;
+        
+    case 'process/profile_process':
+        require __DIR__ . '/process/profile_process.php';
+        break;
+        
+    case 'process/ticket_process':
+        require __DIR__ . '/process/ticket_process.php';
+        break;
+        
+    case 'process/booking_chat_process':
+        require __DIR__ . '/process/booking_chat_process.php';
+        break;
+
+    case 'process/booking_process': // <--- BARU: Untuk konfirmasi Pembayaran oleh Provider
+        require __DIR__ . '/process/booking_process.php';
+        break;
+
+    case 'process/booking_process_client': // <--- BARU: Untuk upload bukti transfer oleh Client (akan dibuat nanti)
+        require __DIR__ . '/process/booking_process_client.php';
         break;
     
     // --- Default / Index ---
