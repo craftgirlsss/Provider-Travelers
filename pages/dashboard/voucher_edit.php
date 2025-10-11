@@ -20,11 +20,12 @@ if (!isset($conn) || !is_object($conn)) {
 }
 
 
-// 2. Ambil Data Voucher
+// 2. Ambil Data Voucher (DIPERBARUI: Menambahkan image_path)
 if (!$error) {
     try {
         $sql = "SELECT 
-                    id, uuid, code, type, value, max_usage, min_purchase, valid_until, is_active
+                    id, uuid, code, type, value, image_path, /* BARU */
+                    max_usage, min_purchase, valid_until, is_active
                 FROM 
                     vouchers
                 WHERE 
@@ -96,7 +97,8 @@ unset($_SESSION['dashboard_message_type']);
 
     <div class="card shadow-sm">
         <div class="card-body">
-            <form action="/process/voucher_process.php" method="POST">
+            <!-- PENTING: Tambahkan enctype="multipart/form-data" -->
+            <form action="/process/voucher_process.php" method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="update_voucher">
                 <input type="hidden" name="voucher_id" value="<?= htmlspecialchars($voucher['id']) ?>">
                 <input type="hidden" name="voucher_uuid" value="<?= htmlspecialchars($voucher['uuid']) ?>">
@@ -140,6 +142,38 @@ unset($_SESSION['dashboard_message_type']);
                                min="0" step="1000" placeholder="Cth: 500000"
                                value="<?= htmlspecialchars($voucher['min_purchase'] ?? '0') ?>">
                     </div>
+                    
+                    <!-- START: Input Gambar Voucher -->
+                    <div class="col-12">
+                        <label for="image" class="form-label">Gambar Voucher (Opsional)</label>
+
+                        <?php 
+                        // Cek apakah sudah ada gambar
+                        $image_path = $voucher['image_path'] ?? '';
+                        if (!empty($image_path) && file_exists($image_path)): 
+                            $image_url = '/' . htmlspecialchars($image_path);
+                        ?>
+                            <div class="mb-3 p-3 border rounded">
+                                <p class="mb-2">Gambar Saat Ini:</p>
+                                <img src="<?php echo $image_url; ?>" alt="Voucher Image" 
+                                     style="max-height: 150px; width: auto; display: block; margin-bottom: 10px;">
+                                
+                                <!-- Opsi Hapus Gambar Lama -->
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="delete_current_image" value="1" id="deleteImageCheck">
+                                    <label class="form-check-label text-danger" for="deleteImageCheck">
+                                        <i class="bi bi-trash"></i> Hapus gambar saat ini
+                                    </label>
+                                </div>
+                                
+                                <small class="text-muted mt-2">Upload file baru di bawah ini untuk mengganti gambar.</small>
+                            </div>
+                        <?php endif; ?>
+
+                        <input class="form-control" type="file" id="image" name="image" accept="image/png, image/jpeg, image/gif">
+                        <small class="form-text text-muted">Maksimal 2MB. Kosongkan jika tidak ingin mengubah atau tidak ingin menggunakan gambar.</small>
+                    </div>
+                    <!-- END: Input Gambar Voucher -->
 
                     <div class="col-md-6">
                         <label for="valid_until" class="form-label">Valid Hingga <span class="text-danger">*</span></label>

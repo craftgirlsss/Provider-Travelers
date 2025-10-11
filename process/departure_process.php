@@ -36,7 +36,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_schedule') {
     // Simpan data POST ke session untuk redisplay jika terjadi error
     $_SESSION['form_data'] = $_POST;
     
-    // 1. Validasi Input Data Jadwal
+    // 1. Validasi Input Data Jadwal Dasar
     if ($trip_id <= 0) $errors[] = "Trip wajib dipilih.";
     if (empty($vehicle_type)) $errors[] = "Jenis kendaraan wajib diisi.";
     if (empty($license_plate)) $errors[] = "Nomor Polisi wajib diisi.";
@@ -57,6 +57,32 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_schedule') {
         }
     }
     
+    // ==========================================================
+    // --- 1.5 VALIDASI DUPLIKASI JADWAL KEBERANGKATAN (BARU) ---
+    // ==========================================================
+    if (empty($errors) && $trip_id > 0) {
+        try {
+            // Asumsi nama tabel adalah trip_departures
+            $stmt_check = $conn->prepare("
+                SELECT COUNT(id) FROM trip_departures 
+                WHERE trip_id = ? AND provider_id = ?
+            ");
+            $stmt_check->bind_param("ii", $trip_id, $actual_provider_id);
+            $stmt_check->execute();
+            $result_count = $stmt_check->get_result()->fetch_row();
+            $count = $result_count[0];
+            $stmt_check->close();
+
+            if ($count > 0) {
+                $errors[] = "Trip ini ($trip_id) sudah memiliki jadwal keberangkatan yang dibuat oleh Anda. Satu Trip hanya dapat memiliki satu jadwal.";
+            }
+        } catch (Exception $e) {
+            $errors[] = "Gagal memverifikasi duplikasi jadwal: " . $e->getMessage();
+        }
+    }
+    // ==========================================================
+
+
     $driver_uuid = null;
     
     // 2. Ambil Driver UUID (Hanya jika tidak ada error validasi lain)
@@ -100,7 +126,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_schedule') {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
-        $stmt->bind_param("iississs",
+        $stmt->bind_param("iissssss", // Tipe Binding Sesuai Perbaikan Sebelumnya
             $trip_id,
             $actual_provider_id,
             $vehicle_type,
@@ -128,7 +154,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_schedule') {
             ");
             
             $type = 'schedule_reminder';
-            $stmt_notif->bind_param("isissis",
+            // Tipe binding "isssss" atau "isissi" untuk 6 variabel
+            $stmt_notif->bind_param("isissi", // Menggunakan isissi (provider_id, type, departure_id, message, link, scheduled_at)
                 $actual_provider_id,
                 $type,
                 $departure_id,

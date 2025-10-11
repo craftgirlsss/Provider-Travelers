@@ -20,7 +20,8 @@ if (!$actual_provider_id) {
 
 <div class="card shadow-sm">
     <div class="card-body">
-        <form action="/process/voucher_process.php" method="POST">
+        <!-- PENTING: Tambahkan enctype="multipart/form-data" untuk mengizinkan upload file -->
+        <form action="/process/voucher_process.php" method="POST" enctype="multipart/form-data">
             <input type="hidden" name="action" value="create_voucher">
             
             <div class="row g-3">
@@ -63,6 +64,14 @@ if (!$actual_provider_id) {
                            value="<?= htmlspecialchars($_SESSION['form_data']['min_purchase'] ?? '0') ?>">
                     <small class="form-text text-muted">Total harga minimal agar voucher berlaku.</small>
                 </div>
+                
+                <!-- START: Penambahan Input Gambar -->
+                <div class="col-12">
+                    <label for="image" class="form-label">Gambar Voucher (Opsional)</label>
+                    <input class="form-control" type="file" id="image" name="image" accept="image/png, image/jpeg, image/gif">
+                    <small class="form-text text-muted">Upload gambar untuk visual voucher (JPG, PNG, GIF). Maksimal file 2 MB.</small>
+                </div>
+                <!-- END: Penambahan Input Gambar -->
 
                 <div class="col-md-6">
                     <label for="valid_until" class="form-label">Valid Hingga <span class="text-danger">*</span></label>

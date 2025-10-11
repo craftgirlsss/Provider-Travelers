@@ -56,38 +56,39 @@ try {
         $stmt_provider_status->close();
         
         // --- 2. QUERY RINGKASAN DATA TRIP ---
-        // Menggunakan COALESCE untuk memastikan nilai numerik jika COUNT/SUM kosong
         $sql_trip_summary = "
             SELECT 
                 COALESCE(COUNT(id), 0) AS total_trips,
-                COALESCE(SUM(CASE WHEN approval_status = 'approved' THEN 1 ELSE 0 END), 0) AS trips_approved,
-                COALESCE(SUM(CASE WHEN approval_status = 'pending' THEN 1 ELSE 0 END), 0) AS trips_pending
+                COALESCE(SUM(CASE WHEN approval_status = 'approved' AND is_deleted = 0 AND end_date >= CURDATE() THEN 1 ELSE 0 END), 0) AS trips_approved,
+                COALESCE(SUM(CASE WHEN approval_status = 'pending' AND is_deleted = 0 AND end_date >= CURDATE() THEN 1 ELSE 0 END), 0) AS trips_pending
             FROM trips
             WHERE provider_id = ?";
             
         $stmt_trip = $conn->prepare($sql_trip_summary);
-        $stmt_trip->bind_param("i", $provider_id); // Ganti 's' menjadi 'i' (integer)
+        $stmt_trip->bind_param("i", $provider_id); 
         $stmt_trip->execute();
         $trip_summary_result = $stmt_trip->get_result()->fetch_assoc();
         $summary_data = array_merge($summary_data, $trip_summary_result);
         $stmt_trip->close();
 
-        // --- 3. QUERY RINGKASAN DATA PEMESANAN & PENDAPATAN ---
-        // Catatan: Asumsi kolom b.status = 'confirmed' adalah status akhir sebelum 'completed'
-        // dan status pembayaran ada di tabel payments.
+        // --- 3. QUERY RINGKASAN DATA PEMESANAN & PENDAPATAN (PERUBAHAN ADA DI BAWAH INI) ---
         $sql_booking_summary = "
-            SELECT 
-                COALESCE(COUNT(b.id), 0) AS total_bookings,
-                COALESCE(SUM(CASE WHEN b.status = 'pending' THEN 1 ELSE 0 END), 0) AS bookings_pending_confirm,
-                COALESCE(SUM(CASE WHEN b.status = 'paid' THEN b.total_price ELSE 0 END), 0) AS total_revenue
-            FROM bookings b
-            JOIN trips t ON b.trip_id = t.id
-            WHERE t.provider_id = ?";
-            // Catatan: Saya HILANGKAN LEFT JOIN payments karena kompleksitas dan fokus pada status booking/trip
-            // Jika kolom status di tabel bookings sudah mencakup 'paid', maka ini lebih sederhana.
+                SELECT 
+                    COALESCE(COUNT(b.id), 0) AS total_bookings,
+                    COALESCE(SUM(CASE 
+                        WHEN b.status = 'pending' AND t.start_date >= CURDATE() THEN 1 
+                        ELSE 0 
+                    END), 0) AS bookings_pending_confirm,
+                    COALESCE(SUM(CASE WHEN b.status = 'paid' THEN b.total_price ELSE 0 END), 0) AS total_revenue
+                FROM trips t
+                -- FORCE INDEX DITAMBAHKAN DI SINI
+                JOIN bookings b FORCE INDEX (idx_trip_status) ON b.trip_id = t.id
+                WHERE t.provider_id = ?
+            ";
+        // Catatan: Pemesanan 'paid' (pendapatan) dihitung terlepas dari tanggal trip.
 
         $stmt_booking = $conn->prepare($sql_booking_summary);
-        $stmt_booking->bind_param("i", $provider_id); // Ganti 's' menjadi 'i' (integer)
+        $stmt_booking->bind_param("i", $provider_id); 
         $stmt_booking->execute();
         $booking_summary_result = $stmt_booking->get_result()->fetch_assoc();
         $summary_data = array_merge($summary_data, $booking_summary_result);
@@ -95,14 +96,14 @@ try {
         
         // --- 4. QUERY TRIP TERBARU ---
         $sql_recent_trips = "
-            SELECT title, location, start_date, price, approval_status 
+            SELECT id, title, location, start_date, price, approval_status, is_deleted
             FROM trips 
-            WHERE provider_id = ?
+            WHERE provider_id = ? AND is_deleted = 0 
             ORDER BY created_at DESC 
             LIMIT 5";
             
         $stmt_recent = $conn->prepare($sql_recent_trips);
-        $stmt_recent->bind_param("i", $provider_id); // Ganti 's' menjadi 'i' (integer)
+        $stmt_recent->bind_param("i", $provider_id); 
         $stmt_recent->execute();
         $summary_data['recent_trips'] = $stmt_recent->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt_recent->close();
@@ -126,7 +127,10 @@ function get_verification_badge($status) {
 /**
  * Fungsi Pembantu untuk Badge Status Persetujuan Trip
  */
-function get_approval_badge($status) {
+function get_approval_badge($status, $is_deleted = 0) {
+    if ($is_deleted) {
+         return '<span class="badge bg-danger"><i class="bi bi-trash-fill me-1"></i> Dihapus</span>';
+    }
     switch ($status) {
         case 'approved': return '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i> Disetujui</span>';
         case 'pending': return '<span class="badge bg-warning text-dark"><i class="bi bi-clock-fill me-1"></i> Menunggu</span>';
@@ -244,7 +248,7 @@ function get_approval_badge($status) {
                             <td><?php echo htmlspecialchars($trip['location']); ?></td>
                             <td><?php echo date('d M Y', strtotime($trip['start_date'])); ?></td>
                             <td>Rp <?php echo number_format((float)$trip['price'], 0, ',', '.'); ?></td>
-                            <td><?php echo get_approval_badge($trip['approval_status']); ?></td>
+                            <td><?php echo get_approval_badge($trip['approval_status'], $trip['is_deleted']); ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>

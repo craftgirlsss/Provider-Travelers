@@ -73,7 +73,6 @@ function get_departure_status_badge($status) {
                 <table class="table table-striped align-middle">
                     <thead class="table-dark">
                         <tr>
-                            <th>ID</th>
                             <th>Trip</th>
                             <th>Jadwal</th>
                             <th>Kendaraan</th>
@@ -83,16 +82,39 @@ function get_departure_status_badge($status) {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($schedules as $schedule): ?>
+                        <?php 
+                        // Dapatkan waktu saat ini
+                        $current_time = time();
+                        ?>
+                        <?php foreach ($schedules as $schedule): 
+                            // 1. Hitung Waktu Keberangkatan Penuh (Timestamp)
+                            $departure_datetime = strtotime($schedule['departure_date'] . ' ' . $schedule['departure_time']);
+
+                            // 2. Hitung Batas Waktu Edit (Waktu Keberangkatan dikurangi 48 jam)
+                            // 48 * 3600 adalah jumlah detik dalam 48 jam
+                            $edit_deadline_time = $departure_datetime - (48 * 3600);
+
+                            // 3. Tentukan apakah tombol Edit harus dinonaktifkan
+                            // Jika waktu saat ini SUDAH MELEWATI batas waktu edit (H-2)
+                            $is_edit_disabled = $current_time > $edit_deadline_time;
+
+                            // Tentukan kelas tombol dan atribut disabled
+                            $edit_btn_class = $is_edit_disabled ? 'btn-secondary' : 'btn-outline-warning';
+                            $edit_btn_disabled_attr = $is_edit_disabled ? 'disabled' : '';
+                        ?>
                         <tr>
-                            <td>#<?php echo htmlspecialchars($schedule['id']); ?></td>
                             <td><?php echo htmlspecialchars($schedule['trip_title']); ?></td>
                             <td><?php echo date('d M Y', strtotime($schedule['departure_date'])) . ' ' . date('H:i', strtotime($schedule['departure_time'])); ?></td>
                             <td><?php echo htmlspecialchars($schedule['vehicle_type']); ?></td>
                             <td><?php echo htmlspecialchars($schedule['license_plate']); ?></td>
                             <td><?php echo get_departure_status_badge($schedule['status']); ?></td>
-                            <td>
-                                <a href="/dashboard?p=departure_edit&id=<?php echo $schedule['id']; ?>" class="btn btn-sm btn-outline-warning me-1">Edit</a>
+                            <td class="text-nowrap">
+                                <a href="/dashboard?p=departure_edit&id=<?php echo $schedule['id']; ?>" 
+                                   class="btn btn-sm <?php echo $edit_btn_class; ?> me-1" 
+                                   <?php echo $edit_btn_disabled_attr; ?>
+                                   <?php if ($is_edit_disabled): ?>title="Trip ini sudah H-2 keberangkatan, tidak bisa diedit."<?php endif; ?>>
+                                    Edit
+                                </a>
                                 
                                 <?php if ($schedule['tracking_link']): ?>
                                     <a href="<?php echo htmlspecialchars($schedule['tracking_link']); ?>" target="_blank" class="btn btn-sm btn-outline-info">

@@ -22,13 +22,14 @@ if (!$provider_id) {
 // Ambil semua Trip aktif dan Driver aktif milik Provider
 if (!$error) {
     try {
-        // Ambil Trips yang sudah approved dan belum dihapus
+        // Ambil Trips yang sudah approved, belum dihapus, belum kadaluarsa, DAN START_DATE-nya
         $stmt_trips = $conn->prepare("
-            SELECT id, title 
+            SELECT id, title, start_date /* KOLOM START_DATE DITAMBAHKAN */
             FROM trips 
             WHERE provider_id = ? 
             AND approval_status = 'approved' 
             AND is_deleted = 0 
+            AND end_date >= CURDATE()
             ORDER BY title ASC
         ");
         $stmt_trips->bind_param("i", $provider_id);
@@ -36,7 +37,7 @@ if (!$error) {
         $trips = $stmt_trips->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt_trips->close();
 
-        // Ambil Drivers Aktif
+        // Ambil Drivers Aktif (Logika ini tetap sama)
         $stmt_drivers = $conn->prepare("
             SELECT id, name 
             FROM drivers 
@@ -84,15 +85,18 @@ endif;
                 <select class="form-select" id="trip_id" name="trip_id" required 
                     <?php echo empty($trips) ? 'disabled' : ''; ?>>
                     <option value="">-- Pilih Trip Aktif --</option>
-                    <?php foreach ($trips as $trip): ?>
+                    <?php foreach ($trips as $trip): 
+                        // Format tanggal start_date menjadi DD MMM YYYY
+                        $formatted_date = date('d M Y', strtotime($trip['start_date']));
+                    ?>
                         <option value="<?php echo $trip['id']; ?>" 
                             <?php echo ($form_data['trip_id'] ?? '') == $trip['id'] ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($trip['title']); ?> (ID: <?php echo $trip['id']; ?>)
+                            <?php echo htmlspecialchars($trip['title']); ?> (Mulai: <?php echo $formatted_date; ?>)
                         </option>
                     <?php endforeach; ?>
                 </select>
                 <?php if (empty($trips)): ?>
-                    <small class="text-danger mt-1 d-block">Anda belum memiliki Trip yang disetujui. Trip harus berstatus "approved" untuk dibuatkan jadwal.</small>
+                    <small class="text-danger mt-1 d-block">Anda belum memiliki Trip yang disetujui atau semua Trip Anda sudah kadaluarsa. Trip harus berstatus "approved" dan tanggal akhirnya belum terlewati.</small>
                 <?php endif; ?>
             </div>
 

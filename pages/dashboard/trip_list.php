@@ -1,14 +1,16 @@
 <?php
 // File: pages/dashboard/trip_list.php
 
+// Panggil variabel yang sudah disiapkan oleh dashboard.php
+global $conn, $user_id_from_session, $actual_provider_id; 
+
 // =======================================================================
 // Perbaikan Utama: Menggunakan variabel yang sudah di-set di dashboard.php
-// $user_id_from_session (int)
-// $actual_provider_id (int)
 // =======================================================================
 
 // Tambahkan inisialisasi untuk variabel $error agar tidak Undefined.
 $error = null;
+$trips = [];
 
 // Pastikan variabel utama sudah tersedia dari dashboard.php.
 if (!isset($user_id_from_session) || !$user_id_from_session || !isset($actual_provider_id) || !$actual_provider_id) {
@@ -21,7 +23,7 @@ if (!isset($user_id_from_session) || !$user_id_from_session || !isset($actual_pr
 
 
 $verification_status = 'unverified'; // Default status
-$trips = [];
+
 
 // Ambil pesan dari session (setelah create/edit/delete)
 $message = $_SESSION['dashboard_message'] ?? '';
@@ -44,25 +46,27 @@ try {
         $stmt_status->close();
 
 
-        // 2. Ambil data trip
+        // 2. Ambil data trip (PERUBAHAN DI SINI: LEFT JOIN untuk Gambar)
         $stmt = $conn->prepare("SELECT 
-                            id,
-                            uuid,       
-                            title, 
-                            location AS location,
-                            start_date, 
-                            end_date, 
-                            max_participants,      
-                            booked_participants,
-                            price, 
-                            discount_price, 
-                            status,
-                            approval_status
-                        FROM trips 
-                        WHERE provider_id = ?
-                        AND is_deleted = 0
-                        AND end_date >= CURDATE()
-                        ORDER BY created_at ASC");
+                            t.id,
+                            t.uuid,       
+                            t.title, 
+                            t.location,
+                            t.start_date, 
+                            t.end_date, 
+                            t.max_participants,      
+                            t.booked_participants,
+                            t.price, 
+                            t.discount_price, 
+                            t.status,
+                            t.approval_status,
+                            ti.image_url /* KOLOM GAMBAR BARU */
+                        FROM trips t 
+                        LEFT JOIN trip_images ti ON t.id = ti.trip_id AND ti.is_main = 1 /* JOIN UNTUK GAMBAR UTAMA */
+                        WHERE t.provider_id = ?
+                        AND t.is_deleted = 0
+                        AND t.end_date >= CURDATE()
+                        ORDER BY t.created_at ASC");
         
         $stmt->bind_param("i", $provider_id_used); // Gunakan ID provider (integer)
         $stmt->execute();
@@ -151,8 +155,7 @@ function get_approval_badge($approval_status) {
                 <table class="table table-striped table-hover align-middle">
                     <thead class="table-dark">
                         <tr>
-                            <th>Trip ID</th>
-                            <th>Judul & Tujuan</th>
+                            <th style="width: 50px;">Gambar</th> <th>Judul & Tujuan</th>
                             <th>Jadwal</th>
                             <th>Harga</th>
                             <th>Jumlah</th>
@@ -164,9 +167,17 @@ function get_approval_badge($approval_status) {
                         <?php foreach ($trips as $trip): ?>
                         <tr>
                             <td>
-                                <span title="<?php echo htmlspecialchars($trip['uuid']); ?>">
-                                    #<?php echo strtoupper(substr($trip['uuid'] ?? '', 0, 5)); ?>
-                                </span>
+                                <?php 
+                                $image_path = htmlspecialchars($trip['image_url'] ?? '');
+                                // Pastikan path ada dan file ada di server sebelum ditampilkan
+                                if (!empty($image_path) && file_exists(__DIR__ . '/../../' . $image_path)): 
+                                ?>
+                                    <img src="/<?php echo $image_path; ?>" 
+                                         alt="Trip Photo" 
+                                         style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
+                                <?php else: ?>
+                                    <i class="bi bi-image-fill text-muted" style="font-size: 24px;" title="Tidak Ada Gambar"></i>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <strong><?php echo htmlspecialchars($trip['title']); ?></strong><br>
@@ -237,7 +248,6 @@ function get_approval_badge($approval_status) {
 </div>
 
 <script>
-// Logic JavaScript/jQuery untuk mengisi ID Trip ke dalam modal (Tidak Berubah)
 document.addEventListener('DOMContentLoaded', function() {
     var deleteTripModal = document.getElementById('deleteTripModal');
     

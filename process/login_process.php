@@ -131,7 +131,6 @@ try {
     
 } catch (Exception $e) {
     // Log kesalahan database yang lebih umum
-    error_log("Login Error for email $email: " . $e->getMessage());
     $_SESSION['message'] = "Terjadi kesalahan sistem. Silakan coba lagi.";
     $_SESSION['message_type'] = "danger";
     header("Location: " . $redirect_to);

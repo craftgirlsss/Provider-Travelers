@@ -295,6 +295,65 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_driver') {
         header("Location: /dashboard?p=driver_edit&id=" . $driver_id);
         exit();
     }
+} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'deactivate_driver') {
+    // Soft Delete (is_active = 0)
+    $driver_id_to_deactivate = (int)($_POST['driver_id'] ?? 0);
+    $message = "Gagal menonaktifkan driver.";
+    $message_type = "danger";
+
+    if ($driver_id_to_deactivate > 0) {
+        try {
+            $stmt = $conn->prepare("UPDATE drivers SET is_active = 0 WHERE id = ? AND provider_id = ?");
+            $stmt->bind_param("ii", $driver_id_to_deactivate, $actual_provider_id);
+            $stmt->execute();
+
+            if ($stmt->affected_rows > 0) {
+                $message = "Driver berhasil dinonaktifkan dan diarsipkan.";
+                $message_type = "success";
+            } else {
+                $message = "Gagal menonaktifkan driver. ID tidak ditemukan atau Anda tidak memiliki izin.";
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $message = "Kesalahan database: " . $e->getMessage();
+        }
+    }
+    
+    $_SESSION['dashboard_message'] = $message;
+    $_SESSION['dashboard_message_type'] = $message_type;
+    // Redirect kembali ke halaman edit driver tersebut (atau ke daftar)
+    header("Location: /dashboard?p=driver_edit&id=" . $driver_id_to_deactivate);
+    exit();
+
+} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'activate_driver') {
+    // Restore (is_active = 1)
+    $driver_id_to_activate = (int)($_POST['driver_id'] ?? 0);
+    $message = "Gagal mengaktifkan kembali driver.";
+    $message_type = "danger";
+
+    if ($driver_id_to_activate > 0) {
+        try {
+            $stmt = $conn->prepare("UPDATE drivers SET is_active = 1 WHERE id = ? AND provider_id = ?");
+            $stmt->bind_param("ii", $driver_id_to_activate, $actual_provider_id);
+            $stmt->execute();
+
+            if ($stmt->affected_rows > 0) {
+                $message = "Driver berhasil diaktifkan kembali.";
+                $message_type = "success";
+            } else {
+                $message = "Gagal mengaktifkan driver. ID tidak ditemukan atau Anda tidak memiliki izin.";
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $message = "Kesalahan database: " . $e->getMessage();
+        }
+    }
+    
+    $_SESSION['dashboard_message'] = $message;
+    $_SESSION['dashboard_message_type'] = $message_type;
+    // Redirect kembali ke halaman edit driver tersebut (atau ke daftar)
+    header("Location: /dashboard?p=driver_edit&id=" . $driver_id_to_activate);
+    exit();
 }
 
 

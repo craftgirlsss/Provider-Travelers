@@ -2,19 +2,25 @@
 // File: dashboard.php (Root Folder)
 session_start();
 require_once __DIR__ . '/config/db_config.php'; 
-// Asumsi: db_config.php sudah me-load $conn
 
-// Inisialisasi variabel otorisasi
+// Inisialisasi variabel otorisasi & data provider
 $user_uuid_from_session = $_SESSION['user_uuid'] ?? null;
 $user_role_from_session = $_SESSION['user_role'] ?? null;
-$user_id_from_session = null; // ID integer dari tabel users
-$actual_provider_id = null; // ID integer dari tabel providers
+$user_id_from_session = null; 
+$actual_provider_id = null; 
+
+// --- Data Provider Lengkap ---
+$provider_data = [
+    'name' => 'Provider', // Default
+    'logo_path' => 'assets/default_logo.png', // Default
+    'email' => $_SESSION['user_email'] ?? 'unknown@example.com'
+];
+
 
 // 1. Logic Perlindungan Halaman & Otorisasi
 if (!$user_uuid_from_session || $user_role_from_session !== 'provider') {
     $_SESSION['message'] = "Anda harus login sebagai Provider untuk mengakses Dashboard.";
     $_SESSION['message_type'] = "danger";
-    // Hapus session yang mungkin salah
     session_unset();
     session_destroy();
     session_start();
@@ -22,36 +28,41 @@ if (!$user_uuid_from_session || $user_role_from_session !== 'provider') {
     exit();
 }
 
-// --- Ambil ID Integer (id) dan Provider ID dari UUID ---
+// --- Ambil ID Integer (id), Provider ID, dan Data Lengkap ---
 try {
-    // A. Ambil ID integer dari tabel users menggunakan UUID
-    $stmt_user = $conn->prepare("SELECT id FROM users WHERE uuid = ?");
+    // A. Ambil Data User (ID & Email)
+    $stmt_user = $conn->prepare("SELECT u.id, u.email, p.id AS provider_id, p.company_name, p.company_logo_path
+                                 FROM users u
+                                 JOIN providers p ON u.id = p.user_id
+                                 WHERE u.uuid = ?");
     $stmt_user->bind_param("s", $user_uuid_from_session); 
     $stmt_user->execute();
     $result_user = $stmt_user->get_result();
     
     if ($result_user->num_rows > 0) {
-        $user_id_from_session = $result_user->fetch_assoc()['id'];
+        $data = $result_user->fetch_assoc();
+        
+        $user_id_from_session = $data['id'];
+        $actual_provider_id = $data['provider_id'];
+
+        // Isi data provider
+        $provider_data['name'] = htmlspecialchars($data['company_name']);
+        $provider_data['email'] = htmlspecialchars($data['email']);
+        
+        // Cek dan gunakan logo jika ada
+        if (!empty($data['logo_path']) && file_exists($data['logo_path'])) {
+            // Asumsi logo_path adalah path relatif yang bisa diakses di browser
+            $provider_data['logo_path'] = htmlspecialchars($data['logo_path']);
+        } else {
+             // Gunakan logo default
+             $provider_data['logo_path'] = 'assets/default_logo.png'; 
+             // Catatan: Pastikan Anda memiliki file ini atau ganti dengan logo default yang valid.
+        }
     }
     $stmt_user->close();
 
-    if ($user_id_from_session) {
-        // B. Ambil provider_id dari tabel providers menggunakan user_id integer
-        $stmt_provider = $conn->prepare("SELECT id FROM providers WHERE user_id = ?");
-        // Gunakan binding "i" karena $user_id_from_session adalah integer (BIGINT)
-        $stmt_provider->bind_param("i", $user_id_from_session); 
-        $stmt_provider->execute();
-        $result_provider = $stmt_provider->get_result();
-        
-        if ($result_provider->num_rows > 0) {
-            $actual_provider_id = $result_provider->fetch_assoc()['id'];
-        }
-        $stmt_provider->close();
-    }
-
 } catch (Exception $e) {
-    // Jika ada error DB, anggap otorisasi gagal
-    $_SESSION['message'] = "Terjadi kesalahan otorisasi sistem. Silakan coba login lagi.";
+    $_SESSION['message'] = "Terjadi kesalahan otorisasi sistem: " . $e->getMessage();
     $_SESSION['message_type'] = "danger";
     header("Location: /login");
     exit();
@@ -66,20 +77,18 @@ if (!$user_id_from_session || !$actual_provider_id) {
 }
 
 // ==========================================================
-// <<< LOGIC PENTING UNTUK FILE PROCESS: START >>>
+// LOGIC PENTING UNTUK FILE PROCESS:
 // ==========================================================
-// Simpan ID yang sudah terverifikasi ke sesi agar file proses (trip, driver, departure) 
-// tidak perlu mengulang query DB dan otorisasi.
+// Simpan ID yang sudah terverifikasi dan data utama ke sesi
 $_SESSION['user_id'] = $user_id_from_session; 
 $_SESSION['actual_provider_id'] = $actual_provider_id;
-// ==========================================================
-// <<< LOGIC PENTING UNTUK FILE PROCESS: END >>>
+$_SESSION['provider_name'] = $provider_data['name']; // Simpan nama provider
+$_SESSION['user_email'] = $provider_data['email']; // Update email di sesi
 // ==========================================================
 
-// 2. LOGIC PENGAMBILAN NOTIFIKASI AKTIF (H-5 Reminder, dll.)
+// 2. LOGIC PENGAMBILAN NOTIFIKASI AKTIF (Sama seperti sebelumnya)
 $pending_notifications = [];
 try {
-    // Ambil notifikasi yang belum dibaca dan waktu tampilnya sudah terlewat
     $stmt_notif = $conn->prepare("
         SELECT id, message, link 
         FROM provider_notifications 
@@ -89,22 +98,21 @@ try {
         ORDER BY scheduled_at ASC
         LIMIT 5
     ");
-    // Gunakan binding "i" untuk $actual_provider_id (integer)
     $stmt_notif->bind_param("i", $actual_provider_id);
     $stmt_notif->execute();
     $pending_notifications = $stmt_notif->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt_notif->close();
 } catch (Exception $e) {
-    // Jika ada error DB saat mengambil notif, biarkan $pending_notifications kosong.
+    // Error notifikasi diabaikan.
 }
 // ------------------------------------------------------------------
 
 
-// 3. Tentukan Konten yang Akan Dimuat
-$page = $_GET['p'] ?? 'summary'; // Default ke halaman 'summary'
+// 3. Tentukan Konten yang Akan Dimuat (Sama seperti sebelumnya)
+$page = $_GET['p'] ?? 'summary'; 
 
-// Peta file konten dashboard
 $allowed_pages = [
+    // ... (Maping halaman tetap sama) ...
     'orders' => 'dashboard/order_list.php',
     'booking_detail' => 'dashboard/booking_detail.php', 
     'booking_chat' => 'dashboard/booking_chat.php',
@@ -113,11 +121,12 @@ $allowed_pages = [
     'trip_create' => 'dashboard/create_trip.php',
     'trip_edit' => 'dashboard/trip_edit.php', 
     'trip_archive' => 'dashboard/trip_archive.php',     
-    'departures' => 'dashboard/departure_schedule.php', // List Jadwal
-    'departure_create' => 'dashboard/departure_create.php', // Form Tambah Jadwal  
-    'driver_management' => 'dashboard/driver_list.php', // List Driver
-    'driver_create' => 'dashboard/driver_create.php', // Form Tambah Driver
-    'driver_edit' => 'dashboard/driver_edit.php', // Form Edit Driver
+    'departures' => 'dashboard/departure_schedule.php',
+    'departure_create' => 'dashboard/departure_create.php', 
+    'departure_edit' => 'dashboard/departure_edit.php', 
+    'driver_management' => 'dashboard/driver_list.php',
+    'driver_create' => 'dashboard/driver_create.php',
+    'driver_edit' => 'dashboard/driver_edit.php',
     'vouchers' => 'dashboard/voucher_list.php', 
     'voucher_create' => 'dashboard/voucher_create.php', 
     'voucher_edit' => 'dashboard/voucher_edit.php',
@@ -127,7 +136,6 @@ $allowed_pages = [
 
 $content_path = 'pages/' . ($allowed_pages[$page] ?? $allowed_pages['summary']);
 
-// Jika file tidak ada, alihkan ke summary atau error 404
 if (!file_exists(__DIR__ . '/' . $content_path)) { 
     $content_path = 'pages/' . $allowed_pages['summary'];
 }
@@ -138,106 +146,130 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Provider - Open Trip</title>
+    <title>Dashboard Provider - <?= $provider_data['name'] ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
+        /* Modernized Styling */
+        body { background-color: #f8f9fa; }
         .sidebar {
-            width: 250px;
+            width: 280px; /* Lebih lebar */
             min-height: 100vh;
-            background-color: #343a40; /* Dark sidebar */
+            background-color: #212529; /* Lebih gelap dari dark, atau bisa pakai warna brand */
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
         }
         .sidebar .nav-link {
-            color: #adb5bd;
+            color: #dee2e6;
+            padding: 10px 1.5rem;
         }
         .sidebar .nav-link.active, .sidebar .nav-link:hover {
             color: #fff;
-            background-color: #0d6efd;
+            background-color: #0d6efd; /* Primary color */
+            border-radius: 5px;
         }
-        /* Tambahan styling untuk sub-menu, jika ada */
-        .sub-menu .nav-link {
-            padding-left: 2rem !important; /* Indentasi */
+        .sidebar-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #343a40;
+            margin-bottom: 1rem;
+        }
+        .provider-logo {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 50%;
+            border: 2px solid #fff;
+        }
+        .content-area {
+            flex-grow: 1;
+            padding: 2rem;
         }
     </style>
 </head>
 <body>
     <div class="d-flex">
-        <div class="sidebar text-white p-3">
-            <h4 class="mb-4 text-center text-primary">Provider Panel</h4>
-            <div class="mb-4">
-                <small class="text-light">Halo, <?php echo htmlspecialchars($_SESSION['user_email'] ?? 'Provider'); ?></small>
+        <div class="sidebar text-white">
+            
+            <div class="sidebar-header d-flex flex-column align-items-center">
+                <img src="/<?= $provider_data['logo_path'] ?>" 
+                     alt="Logo <?= $provider_data['name'] ?>" 
+                     class="provider-logo mb-2">
+                <h5 class="m-0 text-white text-center"><?= $provider_data['name'] ?></h5>
+                <small class="text-muted text-center"><?= $provider_data['email'] ?></small>
             </div>
             
-            <ul class="nav flex-column">
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'summary' ? 'active' : ''); ?>" href="/dashboard">
-                        <i class="bi bi-speedometer2 me-2"></i> Ringkasan
-                    </a>
-                </li>
+            <div class="p-3">
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'summary' ? 'active' : ''); ?>" href="/dashboard">
+                            <i class="bi bi-speedometer2 me-2"></i> Ringkasan
+                        </a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'trips' || $page == 'trip_create' || $page == 'trip_edit' ? 'active' : ''); ?>" href="/dashboard?p=trips">
-                        <i class="bi bi-compass me-2"></i> Trip Aktif
-                    </a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'trips' || $page == 'trip_create' || $page == 'trip_edit' ? 'active' : ''); ?>" href="/dashboard?p=trips">
+                            <i class="bi bi-compass me-2"></i> Trip Aktif
+                        </a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page === 'departures' || $page === 'departure_create') ? 'active' : ''; ?>" href="/dashboard?p=departures">
-                        <i class="bi bi-clock-history me-2"></i>
-                        Jadwal Keberangkatan
-                    </a>
-                </li>
-                
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page === 'driver_management' || $page === 'driver_create' || $page === 'driver_edit') ? 'active' : ''; ?>" href="/dashboard?p=driver_management">
-                        <i class="bi bi-person-badge me-2"></i>
-                        Manajemen Driver
-                    </a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page === 'departures' || $page === 'departure_create') ? 'active' : ''; ?>" href="/dashboard?p=departures">
+                            <i class="bi bi-clock-history me-2"></i>
+                            Jadwal Keberangkatan
+                        </a>
+                    </li>
+                    
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page === 'driver_management' || $page === 'driver_create' || $page === 'driver_edit') ? 'active' : ''; ?>" href="/dashboard?p=driver_management">
+                            <i class="bi bi-person-badge me-2"></i>
+                            Manajemen Driver
+                        </a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'trip_archive' ? 'active' : ''); ?>" href="/dashboard?p=trip_archive">
-                        <i class="bi bi-archive me-2"></i> Riwayat Trip & Arsip
-                    </a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'trip_archive' ? 'active' : ''); ?>" href="/dashboard?p=trip_archive">
+                            <i class="bi bi-archive me-2"></i> Riwayat Trip & Arsip
+                        </a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'orders' || $page == 'booking_detail' ? 'active' : ''); ?>" href="/dashboard?p=orders">
-                        <i class="bi bi-box-seam me-2"></i> Pemesanan
-                    </a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'orders' || $page == 'booking_detail' ? 'active' : ''); ?>" href="/dashboard?p=orders">
+                            <i class="bi bi-box-seam me-2"></i> Pemesanan
+                        </a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'vouchers' || $page == 'voucher_create' || $page == 'voucher_edit' ? 'active' : ''); ?>" href="/dashboard?p=vouchers">
-                        <i class="bi bi-tags-fill me-2"></i> Voucher & Diskon
-                    </a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'vouchers' || $page == 'voucher_create' || $page == 'voucher_edit' ? 'active' : ''); ?>" href="/dashboard?p=vouchers">
+                            <i class="bi bi-tags-fill me-2"></i> Voucher & Diskon
+                        </a>
+                    </li>
 
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'provider_tickets' ? 'active' : ''); ?>" href="/dashboard?p=provider_tickets">
-                        <i class="bi bi-chat-left-text me-2"></i> Dukungan & Chat
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($page == 'profile' ? 'active' : ''); ?>" href="/dashboard?p=profile">
-                        <i class="bi bi-gear me-2"></i> Profil & Pengaturan
-                    </a>
-                </li>
-                <li class="nav-item mt-3 pt-3 border-top">
-                    <a class="nav-link text-danger" href="/logout_process">
-                        <i class="bi bi-box-arrow-right me-2"></i> Logout
-                    </a>
-                </li>
-            </ul>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'provider_tickets' ? 'active' : ''); ?>" href="/dashboard?p=provider_tickets">
+                            <i class="bi bi-chat-left-text me-2"></i> Dukungan & Chat
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'profile' ? 'active' : ''); ?>" href="/dashboard?p=profile">
+                            <i class="bi bi-gear me-2"></i> Profil & Pengaturan
+                        </a>
+                    </li>
+                    <li class="nav-item mt-3 pt-3 border-top border-secondary">
+                        <a class="nav-link text-danger" href="/logout_process">
+                            <i class="bi bi-box-arrow-right me-2"></i> Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
         </div>
-        <div class="flex-grow-1 p-4">
+        
+        <div class="content-area">
             <nav aria-label="breadcrumb">
               <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
                 <li class="breadcrumb-item active" aria-current="page"><?php 
-                    // Logika untuk menampilkan nama halaman yang lebih user-friendly
                     $breadcrumb_name = ucwords(str_replace('_', ' ', $page));
+                    // ... (Logika penamaan Breadcrumb sama seperti sebelumnya) ...
                     if ($page === 'trips') $breadcrumb_name = 'Trip Aktif';
                     if ($page === 'trip_archive') $breadcrumb_name = 'Riwayat Trip & Arsip';
                     if ($page === 'summary') $breadcrumb_name = 'Ringkasan';
@@ -246,6 +278,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                     if ($page === 'booking_detail') $breadcrumb_name = 'Detail Pemesanan';
                     if ($page === 'driver_management') $breadcrumb_name = 'Manajemen Driver';
                     if ($page === 'driver_create') $breadcrumb_name = 'Tambah Driver';
+                    if ($page === 'vouchers') $breadcrumb_name = 'Voucher & Diskon';
                     
                     echo $breadcrumb_name;
                 ?></li>
@@ -288,22 +321,19 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
+    // ... (Fungsi markNotificationAsRead tetap sama) ...
     function markNotificationAsRead(notifId) {
-        // Hapus notifikasi secara visual
         const alertElement = document.getElementById('notif-' + notifId);
         if (alertElement) {
-            // Hilangkan tampilan alert dengan transisi (opsional)
             alertElement.classList.add('fade-out'); 
             setTimeout(() => {
                 alertElement.remove();
             }, 300);
         }
 
-        // KIRIM AJAX REQUEST KE SERVER UNTUK UPDATE DB
         fetch('/process/notif_process.php', {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            // Kirim ID Notifikasi dan Aksi
             body: 'action=read&notif_id=' + notifId
         })
         .then(response => response.json())
@@ -312,7 +342,6 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                 console.log('Notifikasi #' + notifId + ' berhasil ditandai sudah dibaca.');
             } else {
                 console.error('Gagal menandai notifikasi di DB:', data.message);
-                // Jika gagal di DB, mungkin munculkan kembali alert di UI
             }
         })
         .catch(error => console.error('Error saat mengirim AJAX:', error));
