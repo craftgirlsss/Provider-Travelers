@@ -5,18 +5,16 @@
 global $conn, $user_id_from_session, $actual_provider_id; 
 
 // =======================================================================
-// Perbaikan Utama: Menggunakan variabel yang sudah di-set di dashboard.php
+// LOGIC PENGAMBILAN DATA (Tidak berubah, karena sudah benar)
 // =======================================================================
 
-// Tambahkan inisialisasi untuk variabel $error agar tidak Undefined.
 $error = null;
 $trips = [];
+$provider_id_used = null;
 
 // Pastikan variabel utama sudah tersedia dari dashboard.php.
 if (!isset($user_id_from_session) || !$user_id_from_session || !isset($actual_provider_id) || !$actual_provider_id) {
-    // Fallback error, meskipun seharusnya dicegah di dashboard.php
     $error = "Error Otorisasi: ID Pengguna atau Provider tidak tersedia.";
-    $provider_id_used = null;
 } else {
     $provider_id_used = $actual_provider_id;
 }
@@ -36,17 +34,17 @@ try {
     // 1. Cari Status Verifikasi Provider
     if ($provider_id_used) {
         $stmt_status = $conn->prepare("SELECT verification_status FROM providers WHERE id = ?");
-        $stmt_status->bind_param("i", $provider_id_used); // Gunakan ID provider (integer)
+        $stmt_status->bind_param("i", $provider_id_used);
         $stmt_status->execute();
         $result_status = $stmt_status->get_result();
         
         if ($result_status->num_rows > 0) {
-            $verification_status = $result_status->fetch_assoc()['verification_status']; // <-- Ambil status verifikasi
+            $verification_status = $result_status->fetch_assoc()['verification_status'];
         }
         $stmt_status->close();
 
 
-        // 2. Ambil data trip (PERUBAHAN DI SINI: LEFT JOIN untuk Gambar)
+        // 2. Ambil data trip (Query sudah benar)
         $stmt = $conn->prepare("SELECT 
                             t.id,
                             t.uuid,       
@@ -60,15 +58,15 @@ try {
                             t.discount_price, 
                             t.status,
                             t.approval_status,
-                            ti.image_url /* KOLOM GAMBAR BARU */
+                            ti.image_url 
                         FROM trips t 
-                        LEFT JOIN trip_images ti ON t.id = ti.trip_id AND ti.is_main = 1 /* JOIN UNTUK GAMBAR UTAMA */
+                        LEFT JOIN trip_images ti ON t.id = ti.trip_id AND ti.is_main = 1 
                         WHERE t.provider_id = ?
                         AND t.is_deleted = 0
                         AND t.end_date >= CURDATE()
                         ORDER BY t.created_at ASC");
         
-        $stmt->bind_param("i", $provider_id_used); // Gunakan ID provider (integer)
+        $stmt->bind_param("i", $provider_id_used);
         $stmt->execute();
         $result = $stmt->get_result();
         
@@ -87,33 +85,41 @@ try {
 }
 
 /**
- * Fungsi Pembantu untuk Badge Status Trip oleh Provider
+ * Fungsi Pembantu untuk Badge Status Trip oleh Provider (Ditingkatkan)
  */
 function get_status_badge($status) {
     switch ($status) {
-        case 'published': return '<span class="badge bg-success">Aktif</span>';
-        case 'draft': return '<span class="badge bg-secondary">Draft</span>';
-        case 'closed': return '<span class="badge bg-warning text-dark">Penuh/Tutup</span>';
-        case 'cancelled': return '<span class="badge bg-danger">Dibatalkan</span>';
-        default: return '<span class="badge bg-info text-dark">N/A</span>';
+        case 'published': return '<span class="badge bg-success-subtle text-success border border-success">Aktif</span>';
+        case 'draft': return '<span class="badge bg-secondary-subtle text-secondary border border-secondary">Draft</span>';
+        case 'closed': return '<span class="badge bg-warning-subtle text-warning border border-warning">Penuh/Tutup</span>';
+        case 'cancelled': return '<span class="badge bg-danger-subtle text-danger border border-danger">Dibatalkan</span>';
+        default: return '<span class="badge bg-info-subtle text-info border border-info">N/A</span>';
     }
 }
 
 /**
- * Fungsi Pembantu untuk Badge Status Persetujuan oleh Admin
+ * Fungsi Pembantu untuk Badge Status Persetujuan oleh Admin (Ditingkatkan)
  */
 function get_approval_badge($approval_status) {
     switch ($approval_status) {
-        case 'approved': return '<span class="badge bg-primary">Disetujui</span>';
-        case 'suspended': return '<span class="badge bg-danger">Ditangguhkan</span>';
+        case 'approved': return '<span class="badge bg-primary-subtle text-primary border border-primary">Disetujui</span>';
+        case 'suspended': return '<span class="badge bg-danger-subtle text-danger border border-danger">Ditangguhkan</span>';
         case 'pending':
-        default: return '<span class="badge bg-warning text-dark">Menunggu</span>';
+        default: return '<span class="badge bg-warning-subtle text-warning border border-warning">Menunggu Persetujuan</span>';
     }
 }
+
+/**
+ * Fungsi Pembantu untuk format mata uang
+ */
+function format_rupiah($angka) {
+    return 'Rp' . number_format($angka, 0, ',', '.');
+}
+
 ?>
 
-<h1 class="mb-4">Manajemen Trip</h1>
-<p class="text-muted">Kelola semua daftar paket perjalanan yang Anda miliki di sini.</p>
+<h1 class="mb-4 text-primary fw-bold">Manajemen Trip Aktif</h1>
+<p class="text-muted">Kelola semua daftar paket perjalanan Anda yang masih aktif dan belum diarsipkan.</p>
 
 <?php if ($error): ?>
     <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
@@ -126,112 +132,133 @@ function get_approval_badge($approval_status) {
     </div>
 <?php endif; ?>
 
-<div class="d-flex justify-content-between mb-3">
+<div class="d-flex justify-content-between mb-4 flex-wrap">
     
     <?php if ($verification_status === 'verified'): ?>
-        <a href="/dashboard?p=trip_create" class="btn btn-primary">
+        <a href="/dashboard?p=trip_create" class="btn btn-lg btn-primary shadow-sm">
             <i class="bi bi-plus-circle me-2"></i> Tambah Trip Baru
         </a>
     <?php else: ?>
-        <button type="button" class="btn btn-secondary" disabled title="Harap verifikasi profil Anda untuk membuat trip baru">
+        <button type="button" class="btn btn-lg btn-secondary shadow-sm" disabled title="Harap verifikasi profil Anda untuk membuat trip baru">
             <i class="bi bi-lock me-2"></i> Tambah Trip (Verifikasi Dibutuhkan)
         </button>
-        <div class="alert alert-info p-2 m-0 ms-3 d-flex align-items-center">
-            <i class="bi bi-info-circle me-2"></i> 
-            Untuk membuat trip, silakan <a href="/dashboard?p=profile" class="alert-link ms-1 fw-bold">lengkapi dan verifikasi </a> profil Anda.
+        <div class="alert alert-warning p-3 m-0 ms-md-3 d-flex align-items-center flex-grow-1 mt-2 mt-md-0 shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> 
+            Akun Anda belum diverifikasi. Untuk membuat trip baru, silakan <a href="/dashboard?p=profile" class="alert-link ms-1 fw-bold">lengkapi dan verifikasi</a> profil Anda.
         </div>
     <?php endif; ?>
-
 </div>
 
-<div class="card shadow-sm mt-4">
-    <div class="card-body">
-        <?php if (empty($trips)): ?>
-            <div class="alert alert-info text-center">
-                Anda belum memiliki trip aktif. Silakan cek <a href="/dashboard?p=trip_archive" class="alert-link">Arsip Trip</a>.
+<h4 class="mb-3">Daftar Trip (<?php echo count($trips); ?>)</h4>
+
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+    <?php if (empty($trips)): ?>
+        <div class="col-12">
+            <div class="alert alert-info text-center shadow-sm">
+                <i class="bi bi-box me-2"></i> Anda belum memiliki trip aktif. Silakan cek <a href="/dashboard?p=trip_archive" class="alert-link">Arsip Trip</a> Anda.
             </div>
-        <?php else: ?>
-            <div class="table-responsive">
-                <table class="table table-striped table-hover align-middle">
-                    <thead class="table-dark">
-                        <tr>
-                            <th style="width: 50px;">Gambar</th> <th>Judul & Tujuan</th>
-                            <th>Jadwal</th>
-                            <th>Harga</th>
-                            <th>Jumlah</th>
-                            <th>Status Admin</th>
-                            <th class="text-center">Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($trips as $trip): ?>
-                        <tr>
-                            <td>
-                                <?php 
-                                $image_path = htmlspecialchars($trip['image_url'] ?? '');
-                                // Pastikan path ada dan file ada di server sebelum ditampilkan
-                                if (!empty($image_path) && file_exists(__DIR__ . '/../../' . $image_path)): 
-                                ?>
-                                    <img src="/<?php echo $image_path; ?>" 
-                                         alt="Trip Photo" 
-                                         style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;">
-                                <?php else: ?>
-                                    <i class="bi bi-image-fill text-muted" style="font-size: 24px;" title="Tidak Ada Gambar"></i>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <strong><?php echo htmlspecialchars($trip['title']); ?></strong><br>
-                                <small class="text-muted"><?php echo htmlspecialchars($trip['location']); ?></small>
-                            </td>
-                            <td>
-                                <?php echo date('d M Y', strtotime($trip['start_date'])); ?> s/d 
+        </div>
+    <?php else: ?>
+        <?php foreach ($trips as $trip): ?>
+            <?php 
+                $image_path = htmlspecialchars($trip['image_url'] ?? '');
+                $default_image = 'assets/default_trip.jpg'; // Pastikan Anda memiliki gambar default ini
+                $final_image = (!empty($image_path) && file_exists(__DIR__ . '/../../' . $image_path)) ? '/' . $image_path : '/' . $default_image;
+                $is_full = $trip['booked_participants'] >= $trip['max_participants'];
+                $progress_bar = round(($trip['booked_participants'] / $trip['max_participants']) * 100);
+            ?>
+            <div class="col">
+                <div class="card h-100 shadow-sm border-0 position-relative <?php echo $is_full ? 'border-warning' : 'border-success'; ?>">
+                    
+                    <div class="position-absolute top-0 end-0 m-2 z-index-1">
+                        <?php echo get_approval_badge($trip['approval_status'] ?? 'pending'); ?>
+                    </div>
+
+                    <img src="<?php echo $final_image; ?>" 
+                         class="card-img-top" 
+                         alt="Gambar Trip: <?php echo htmlspecialchars($trip['title']); ?>"
+                         style="height: 200px; object-fit: cover;">
+                         
+                    <div class="card-body d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h5 class="card-title text-primary fw-bold mb-0">
+                                <?php echo htmlspecialchars($trip['title']); ?>
+                            </h5>
+                            <div>
+                                <?php echo get_status_badge($trip['status'] ?? 'draft'); ?>
+                            </div>
+                        </div>
+                        
+                        <p class="card-text text-muted mb-3 small">
+                            <i class="bi bi-geo-alt-fill me-1"></i> <?php echo htmlspecialchars($trip['location']); ?>
+                        </p>
+
+                        <div class="mb-3">
+                            <h6 class="text-success fw-bold mb-0">
+                                <?php echo format_rupiah($trip['price']); ?>
+                            </h6>
+                            <?php if ($trip['discount_price'] > 0 && $trip['discount_price'] < $trip['price']): ?>
+                                <small class="text-danger text-decoration-line-through">
+                                    <?php echo format_rupiah($trip['discount_price']); ?>
+                                </small>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="mb-3">
+                            <p class="mb-1 small"><i class="bi bi-calendar me-1"></i> 
+                                <b>Jadwal: </b> <?php echo date('d M', strtotime($trip['start_date'])); ?> - 
                                 <?php echo date('d M Y', strtotime($trip['end_date'])); ?>
-                            </td>
-                            <td>
-                                Rp <?php echo number_format($trip['price'], 0, ',', '.'); ?>
-                                <?php if ($trip['discount_price'] > 0): ?>
-                                    <br><small class="text-danger text-decoration-line-through">Rp <?php echo number_format($trip['discount_price'], 0, ',', '.'); ?></small>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <small class="text-muted"><?php echo $trip['booked_participants']; ?> / <?php echo $trip['max_participants']; ?> Kuota</small>
-                            </td>
-                            <td>
-                                <?php echo get_approval_badge($trip['approval_status'] ?? 'pending'); ?>
-                            </td>
-                            <td class="text-center">
-                                <a href="/dashboard?p=trip_edit&id=<?php echo htmlspecialchars($trip['uuid']); ?>" class="btn btn-sm btn-info text-white me-2" title="Edit Trip"><i class="bi bi-pencil"></i> Edit</a>
-                                
-                                <button 
-                                    type="button" 
-                                    class="btn btn-sm btn-danger" 
-                                    title="Hapus Trip"
-                                    data-bs-toggle="modal" 
-                                    data-bs-target="#deleteTripModal"
-                                    data-trip-id="<?php echo $trip['id']; ?>"           
-                                    data-trip-title="<?php echo htmlspecialchars($trip['title']); ?>" 
-                                >
-                                    <i class="bi bi-trash"></i> Hapus
-                                </button>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                            </p>
+                            <p class="mb-1 small">
+                                <i class="bi bi-people-fill me-1"></i> <b>Kuota: </b> <span class="fw-bold <?php echo $is_full ? 'text-danger' : 'text-success'; ?>">
+                                    <?php echo $trip['booked_participants']; ?>
+                                </span> / <?php echo $trip['max_participants']; ?> Terisi
+                            </p>
+                            
+                            <div class="progress mt-1" style="height: 6px;">
+                                <div class="progress-bar <?php echo $is_full ? 'bg-danger' : 'bg-success'; ?>" 
+                                     role="progressbar" 
+                                     style="width: <?php echo $progress_bar; ?>%" 
+                                     aria-valuenow="<?php echo $progress_bar; ?>" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-auto d-flex justify-content-between pt-2 border-top">
+                            <a href="/dashboard?p=trip_edit&id=<?php echo htmlspecialchars($trip['uuid']); ?>" class="btn btn-sm btn-outline-primary flex-fill me-2">
+                                <i class="bi bi-pencil me-1"></i> Edit Detail
+                            </a>
+                            <button 
+                                type="button" 
+                                class="btn btn-sm btn-outline-danger" 
+                                title="Arsipkan Trip"
+                                data-bs-toggle="modal" 
+                                data-bs-target="#deleteTripModal"
+                                data-trip-id="<?php echo $trip['id']; ?>"           
+                                data-trip-title="<?php echo htmlspecialchars($trip['title']); ?>" 
+                            >
+                                <i class="bi bi-archive-fill"></i>
+                            </button>
+                        </div>
+
+                    </div>
+                </div>
             </div>
-        <?php endif; ?>
-    </div>
+        <?php endforeach; ?>
+    <?php endif; ?>
 </div>
 
 <div class="modal fade" id="deleteTripModal" tabindex="-1" aria-labelledby="deleteTripModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="deleteTripModalLabel">Konfirmasi Hapus Trip</h5>
+                <h5 class="modal-title text-danger" id="deleteTripModalLabel"><i class="bi bi-trash me-2"></i> Konfirmasi Arsip Trip</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                Apakah Anda yakin ingin menghapus trip "<span id="tripTitlePlaceholder" class="fw-bold"></span>"? 
+                Apakah Anda yakin ingin menghapus trip "<span id="tripTitlePlaceholder" class="fw-bold text-primary"></span>"? 
                 Trip ini akan dipindahkan ke **Arsip Trip** dan **dapat dikembalikan** (*Restore*) kapan saja.
             </div>
             <div class="modal-footer">
@@ -240,7 +267,7 @@ function get_approval_badge($approval_status) {
                 <form id="deleteTripForm" action="/process/trip_process" method="POST" style="display: inline;">
                     <input type="hidden" name="action" value="delete_trip">
                     <input type="hidden" name="trip_id" id="modalTripId">
-                    <button type="submit" class="btn btn-danger">Ya, Arsipkan Trip</button>
+                    <button type="submit" class="btn btn-danger"><i class="bi bi-archive-fill me-1"></i> Ya, Arsipkan Trip</button>
                 </form>
             </div>
         </div>

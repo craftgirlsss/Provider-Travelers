@@ -5,6 +5,7 @@ require_once __DIR__ . '/config/db_config.php';
 
 // Inisialisasi variabel otorisasi & data provider
 $user_uuid_from_session = $_SESSION['user_uuid'] ?? null;
+// ... (Kode otorisasi dan pengambilan data provider tetap sama) ...
 $user_role_from_session = $_SESSION['user_role'] ?? null;
 $user_id_from_session = null; 
 $actual_provider_id = null; 
@@ -50,9 +51,9 @@ try {
         $provider_data['email'] = htmlspecialchars($data['email']);
         
         // Cek dan gunakan logo jika ada
-        if (!empty($data['logo_path']) && file_exists($data['logo_path'])) {
+        if (!empty($data['company_logo_path']) && file_exists($data['company_logo_path'])) {
             // Asumsi logo_path adalah path relatif yang bisa diakses di browser
-            $provider_data['logo_path'] = htmlspecialchars($data['logo_path']);
+            $provider_data['logo_path'] = htmlspecialchars($data['company_logo_path']);
         } else {
              // Gunakan logo default
              $provider_data['logo_path'] = 'assets/default_logo.png'; 
@@ -108,11 +109,14 @@ try {
 // ------------------------------------------------------------------
 
 
-// 3. Tentukan Konten yang Akan Dimuat (Sama seperti sebelumnya)
+// 3. Tentukan Konten yang Akan Dimuat
 $page = $_GET['p'] ?? 'summary'; 
 
 $allowed_pages = [
-    // ... (Maping halaman tetap sama) ...
+    // --- PENAMBAHAN 'REPORTS' DI SINI ---
+    'reports' => 'dashboard/reports.php', 
+    'activity_log' => 'dashboard/activity_log.php',
+    // -----------------------------------
     'orders' => 'dashboard/order_list.php',
     'booking_detail' => 'dashboard/booking_detail.php', 
     'booking_chat' => 'dashboard/booking_chat.php',
@@ -132,9 +136,16 @@ $allowed_pages = [
     'voucher_edit' => 'dashboard/voucher_edit.php',
     'profile' => 'dashboard/profile_settings.php',  
     'provider_tickets' => 'dashboard/provider_tickets.php', 
+    'donation' => 'donation.php', 
 ];
 
-$content_path = 'pages/' . ($allowed_pages[$page] ?? $allowed_pages['summary']);
+// Perubahan di sini untuk menangani file donation.php yang berada di pages/donation.php
+if ($page === 'donation') {
+    $content_path = 'pages/donation.php';
+} else {
+    $content_path = 'pages/' . ($allowed_pages[$page] ?? $allowed_pages['summary']);
+}
+
 
 if (!file_exists(__DIR__ . '/' . $content_path)) { 
     $content_path = 'pages/' . $allowed_pages['summary'];
@@ -205,7 +216,12 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                             <i class="bi bi-speedometer2 me-2"></i> Ringkasan
                         </a>
                     </li>
-
+                    
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'reports' ? 'active' : ''); ?>" href="/dashboard?p=reports">
+                            <i class="bi bi-graph-up me-2"></i> Laporan Keuangan
+                        </a>
+                    </li>
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($page == 'trips' || $page == 'trip_create' || $page == 'trip_edit' ? 'active' : ''); ?>" href="/dashboard?p=trips">
                             <i class="bi bi-compass me-2"></i> Trip Aktif
@@ -243,7 +259,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                             <i class="bi bi-tags-fill me-2"></i> Voucher & Diskon
                         </a>
                     </li>
-
+                    
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($page == 'provider_tickets' ? 'active' : ''); ?>" href="/dashboard?p=provider_tickets">
                             <i class="bi bi-chat-left-text me-2"></i> Dukungan & Chat
@@ -254,6 +270,19 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                             <i class="bi bi-gear me-2"></i> Profil & Pengaturan
                         </a>
                     </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'activity_log' ? 'active' : ''); ?>" href="/dashboard?p=activity_log">
+                            <i class="bi bi-clock-history me-2"></i> Riwayat Aktivitas
+                        </a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'donation' ? 'active' : ''); ?>" href="/dashboard?p=donation">
+                            <i class="bi bi-gift-fill me-2"></i> Dukung Kami (Donasi)
+                        </a>
+                    </li>
+                    
                     <li class="nav-item mt-3 pt-3 border-top border-secondary">
                         <a class="nav-link text-danger" href="/logout_process">
                             <i class="bi bi-box-arrow-right me-2"></i> Logout
@@ -269,7 +298,12 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                 <li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li>
                 <li class="breadcrumb-item active" aria-current="page"><?php 
                     $breadcrumb_name = ucwords(str_replace('_', ' ', $page));
-                    // ... (Logika penamaan Breadcrumb sama seperti sebelumnya) ...
+                    
+                    // --- PENAMBAHAN BREADCRUMB DI SINI ---
+                    if ($page === 'reports') $breadcrumb_name = 'Laporan Keuangan';
+                    if ($page === 'activity_log') $breadcrumb_name = 'Riwayat Aktivitas';
+                    // ------------------------------------
+
                     if ($page === 'trips') $breadcrumb_name = 'Trip Aktif';
                     if ($page === 'trip_archive') $breadcrumb_name = 'Riwayat Trip & Arsip';
                     if ($page === 'summary') $breadcrumb_name = 'Ringkasan';
@@ -279,6 +313,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                     if ($page === 'driver_management') $breadcrumb_name = 'Manajemen Driver';
                     if ($page === 'driver_create') $breadcrumb_name = 'Tambah Driver';
                     if ($page === 'vouchers') $breadcrumb_name = 'Voucher & Diskon';
+                    if ($page === 'donation') $breadcrumb_name = 'Dukung Kami'; 
                     
                     echo $breadcrumb_name;
                 ?></li>

@@ -11,6 +11,7 @@ define('SMTP_USER', 'no-reply@karyadeveloperindonesia.com'); // Email yang akan 
 define('SMTP_PASS', 'Justformeokay23'); // Password email atau App Key
 define('SMTP_PORT', 587); // Biasanya 587 (TLS) atau 465 (SSL)
 define('MAIL_FROM_NAME', 'Travelers'); // Nama pengirim
+define('PLATFORM_COMMISSION_RATE', 0.10);
 
 // Buat koneksi MySQLi
 $conn = new mysqli($host, $user, $pass, $db, $port);

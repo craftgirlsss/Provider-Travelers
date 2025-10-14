@@ -23,19 +23,25 @@ if (isset($_SESSION['message'])) {
     <title>Daftar Akun Provider - Open Trip</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .register-container {
-            max-width: 500px;
-            padding: 30px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-            background-color: #ffffff;
-        }
+        /* Menggunakan flexbox untuk centring yang konsisten */
         body {
             background-color: #f8f9fa;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            padding: 20px; /* Tambahkan padding agar tidak menempel di tepi layar kecil */
+        }
+        .register-container {
+            width: 100%; /* Agar bisa mengambil lebar penuh di mobile */
+            max-width: 500px; /* Batasan lebar di desktop */
+            padding: 30px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            background-color: #ffffff;
+            /* Tambahkan margin vertical otomatis agar centring flexbox bekerja */
+            margin-top: auto; 
+            margin-bottom: auto;
         }
         .form-control:focus {
             box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
@@ -47,7 +53,7 @@ if (isset($_SESSION['message'])) {
 
     <div class="register-container">
         <h3 class="text-center mb-4 fw-bold text-primary">Daftar Akun Provider</h3>
-        <p class="text-center text-muted mb-4">Buat akun Anda untuk mulai memposting layanan *open trip*.</p>
+        <p class="text-center text-muted mb-4">Buat akun Anda untuk mulai memposting layanan Trip.</p>
 
         <?php if ($message): ?>
             <div class="alert alert-<?php echo ($message_type == 'success' ? 'success' : 'danger'); ?> alert-dismissible fade show" role="alert">
@@ -84,6 +90,12 @@ if (isset($_SESSION['message'])) {
                 <input type="password" class="form-control" id="password_confirm" name="password_confirm" required>
             </div>
             
+            <div class="form-check mb-4">
+                <input class="form-check-input" type="checkbox" value="1" id="terms_agree" name="terms_agree" required>
+                <label class="form-check-label" for="terms_agree">
+                    Saya menyetujui <a href="#" class="text-decoration-none" data-bs-toggle="modal" data-bs-target="#termsModal">Syarat dan Ketentuan</a> yang berlaku dari PT. Karya Developer Indonesia.
+                </label>
+            </div>
             <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Daftar Sekarang</button>
         </form>
 
@@ -92,6 +104,32 @@ if (isset($_SESSION['message'])) {
         </p>
     </div>
 
+    <div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="termsModalLabel">Syarat dan Ketentuan Provider PT. Karya Developer Indonesia</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <h6>1. Ketentuan Umum</h6>
+            <p>1.1. Dengan mendaftar sebagai Provider, Anda mengakui bahwa Anda adalah entitas bisnis yang sah (Perusahaan/Perorangan) dan berhak secara hukum untuk menjual layanan perjalanan (trip) di platform ini.</p>
+            <p>1.2. PT. Karya Developer Indonesia bertindak sebagai penyedia platform dan tidak bertanggung jawab atas kualitas layanan yang diberikan oleh Provider.</p>
+
+            <h6>2. Komisi dan Pembayaran</h6>
+            <p>2.1. Provider setuju untuk membayar komisi sebesar X% dari total harga pemesanan yang berhasil dibayar melalui platform.</p>
+            <p>2.2. Pembayaran ke Provider akan diproses dalam waktu T+X hari kerja setelah tanggal keberangkatan trip berhasil dilaksanakan.</p>
+            
+            <h6>3. Kewajiban Provider</h6>
+            <p>3.1. Provider wajib memberikan informasi trip yang akurat, jujur, dan lengkap, termasuk harga, tanggal, fasilitas, dan detail lainnya.</p>
+            <p>3.2. Provider bertanggung jawab penuh atas pelaksanaan, keselamatan, dan kualitas layanan selama trip berlangsung.</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Tutup</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

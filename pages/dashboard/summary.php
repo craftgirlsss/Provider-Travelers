@@ -140,7 +140,7 @@ function get_approval_badge($status, $is_deleted = 0) {
 }
 ?>
 
-<h1 class="mb-4">Ringkasan Dashboard</h1>
+<h1 class="mb-4 text-primary fw-bold">Ringkasan Dashboard</h1>
 
 <?php if ($error): ?>
     <div class="alert alert-danger">

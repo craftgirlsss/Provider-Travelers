@@ -5,7 +5,7 @@
 global $conn, $actual_provider_id;
 
 // =======================================================================
-// Persiapan Data & Filter
+// Persiapan Data & Filter (KODE PHP TIDAK BERUBAH)
 // =======================================================================
 
 if (!isset($actual_provider_id) || !$actual_provider_id) {
@@ -121,7 +121,54 @@ function get_booking_status_badge($status) {
     }
 }
 
+/**
+ * Fungsi Pembantu untuk Border Status Card
+ */
+function get_status_border_class($status) {
+    switch ($status) {
+        case 'paid':
+        case 'completed': return 'border-success';
+        case 'pending': return 'border-info';
+        case 'unpaid': return 'border-warning';
+        case 'cancelled': return 'border-danger';
+        default: return 'border-secondary'; 
+    }
+}
 ?>
+
+<style>
+    /* Styling Card Modern untuk Daftar Pesanan */
+    .order-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        border-left: 5px solid; /* Border untuk status */
+        border-radius: 8px;
+        background-color: #ffffff;
+    }
+    .order-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.1) !important;
+    }
+    .client-name {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #212529;
+    }
+    .detail-label {
+        font-size: 0.75rem;
+        color: #6c757d;
+        margin-bottom: 0;
+    }
+    .detail-value {
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: #495057;
+    }
+    .total-price {
+        font-size: 1.25rem;
+        font-weight: bold;
+        color: var(--bs-primary);
+    }
+</style>
 
 <h1 class="mb-4">Daftar Pemesanan Trip</h1>
 <p class="text-muted">Pilih Trip dari dropdown di bawah untuk melihat detail pemesanan.</p>
@@ -173,74 +220,82 @@ function get_booking_status_badge($status) {
 </div>
 
 <?php if ($trip_id_filter === 0): ?>
-    <div class="alert alert-info text-center">
-        Silakan pilih Trip dari dropdown di atas untuk memuat daftar pemesanan.
+    <div class="alert alert-info text-center shadow-sm">
+        <i class="bi bi-arrow-up-circle me-2"></i> Silakan pilih **Trip** dari dropdown di atas untuk memuat daftar pemesanan.
     </div>
 <?php elseif (empty($orders) && $total_orders == 0): ?>
-    <div class="alert alert-info text-center">
-        Trip <?php echo htmlspecialchars($selected_trip_title); ?> belum memiliki pemesanan.
+    <div class="alert alert-info text-center shadow-sm">
+        <i class="bi bi-info-circle me-2"></i> Trip **<?php echo htmlspecialchars($selected_trip_title); ?>** belum memiliki pemesanan.
     </div>
 <?php else: ?>
     
-    <h3 class="mb-3">Pemesanan untuk Trip: <?php echo htmlspecialchars($selected_trip_title); ?></h3>
+    <h3 class="mb-3">Daftar Pemesanan untuk Trip: <span class="text-primary"><?php echo htmlspecialchars($selected_trip_title); ?></span></h3>
     
-    <div class="card shadow-sm">
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-striped table-hover align-middle mb-0">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>ID Pesan</th>
-                            <th>Client</th>
-                            <th>Peserta</th>
-                            <th>Total Harga</th>
-                            <th>Tgl Pesan</th>
-                            <th>Status Pemesanan</th>
-                            <th class="text-center">Bukti Transfer</th>
-                            <th class="text-center">Aksi</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($orders as $order): 
-                            $status = $order['booking_status'];
-                            $has_proof = !empty(trim($order['proof_of_payment_path'] ?? '')); 
-                        ?>
-                        <tr>
-                            <td>#<?php echo $order['booking_id']; ?></td>
-                            <td>
-                                <strong><?php echo htmlspecialchars($order['client_name']); ?></strong><br>
-                                <small class="text-muted"><?php echo htmlspecialchars($order['client_email']); ?></small>
-                            </td>
-                            <td><?php echo $order['num_of_people']; ?> orang</td>
-                            <td>Rp <?php echo number_format($order['total_price'], 0, ',', '.'); ?></td>
-                            <td><?php echo date('d M Y H:i', strtotime($order['booking_date'])); ?></td>
-                            <td><?php echo get_booking_status_badge($status); ?></td>
-                            <td class="text-center">
-                                <?php if (($status === 'unpaid' || $status === 'pending') && $has_proof): ?>
-                                    <span class="badge bg-warning text-dark" title="Menunggu Konfirmasi">
-                                        <i class="bi bi-clock-history me-1"></i> Uploaded
-                                    </span>
-                                <?php elseif ($status === 'paid' || $status === 'completed'): ?>
-                                    <span class="text-success" title="Lunas/Selesai"><i class="bi bi-check-lg"></i></span>
-                                <?php else: ?>
-                                    <span class="badge bg-secondary">
-                                        Menunggu Client
-                                    </span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="text-center">
-                                <a href="/dashboard?p=booking_detail&id=<?php echo $order['booking_id']; ?>" 
-                                   class="btn btn-sm btn-info" 
-                                   title="Lihat Detail & Bukti Pembayaran">
-                                    <i class="bi bi-eye"></i> Detail
-                                </a>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+    <div class="d-grid gap-3">
+        <?php foreach ($orders as $order): 
+            $status = $order['booking_status'];
+            $status_class = get_status_border_class($status);
+            $has_proof = !empty(trim($order['proof_of_payment_path'] ?? '')); 
+        ?>
+        <div class="p-3 shadow-sm order-card d-flex flex-column flex-md-row align-items-md-center <?php echo $status_class; ?>">
+            
+            <div class="flex-fill me-md-4 mb-2 mb-md-0" style="min-width: 250px;">
+                <p class="detail-label">CLIENT & ID PESAN</p>
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                         <div class="client-name"><?php echo htmlspecialchars($order['client_name']); ?></div>
+                         <div class="detail-value text-muted small">
+                            <i class="bi bi-envelope me-1"></i> <?php echo htmlspecialchars($order['client_email']); ?>
+                         </div>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-secondary-subtle text-secondary fw-bold">#<?php echo $order['booking_id']; ?></span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="d-flex flex-row flex-md-row justify-content-between align-items-center me-md-4 mb-2 mb-md-0" style="min-width: 350px;">
+                <div class="me-3">
+                    <p class="detail-label">PESERTA</p>
+                    <p class="detail-value text-dark mb-0"><i class="bi bi-person-fill me-1"></i> <?php echo $order['num_of_people']; ?> orang</p>
+                </div>
+                
+                <div class="me-3">
+                    <p class="detail-label">TGL. PESAN</p>
+                    <p class="detail-value text-dark mb-0"><i class="bi bi-calendar-event me-1"></i> <?php echo date('d M Y H:i', strtotime($order['booking_date'])); ?></p>
+                </div>
+
+                <div>
+                    <p class="detail-label text-center">BUKTI TRANSFER</p>
+                    <div class="text-center">
+                        <?php if (($status === 'unpaid' || $status === 'pending') && $has_proof): ?>
+                            <span class="badge bg-warning text-dark" title="Menunggu Konfirmasi">
+                                <i class="bi bi-clock-history me-1"></i> Uploaded
+                            </span>
+                        <?php elseif ($status === 'paid' || $status === 'completed'): ?>
+                            <span class="text-success fs-5" title="Lunas/Selesai"><i class="bi bi-check-circle-fill"></i></span>
+                        <?php else: ?>
+                            <span class="badge bg-secondary">
+                                Menunggu Client
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-md-end text-start d-flex flex-column align-items-start align-items-md-end" style="min-width: 150px;">
+                <p class="detail-label">TOTAL HARGA</p>
+                <div class="total-price mb-2">Rp <?php echo number_format($order['total_price'], 0, ',', '.'); ?></div>
+                <div class="mb-2 w-100"><?php echo get_booking_status_badge($status); ?></div>
+                
+                <a href="/dashboard?p=booking_detail&id=<?php echo $order['booking_id']; ?>" 
+                   class="btn btn-sm btn-info w-100" 
+                   title="Lihat Detail & Bukti Pembayaran">
+                    <i class="bi bi-search me-1"></i> Tinjau Pesanan
+                </a>
             </div>
         </div>
+        <?php endforeach; ?>
     </div>
     
     <?php if ($total_pages > 1): ?>
@@ -259,11 +314,36 @@ function get_booking_status_badge($status) {
           </a>
         </li>
         
-        <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+        <?php 
+        // Logic Pagination yang Lebih Ramping
+        $start_loop = 1;
+        $end_loop = $total_pages;
+
+        if ($total_pages > 5) {
+            $start_loop = max(1, $current_page - 2);
+            $end_loop = min($total_pages, $current_page + 2);
+
+            if ($start_loop > 1) {
+                echo '<li class="page-item"><a class="page-link" href="' . $base_url . '&page=1">1</a></li>';
+                if ($start_loop > 2) {
+                    echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                }
+            }
+        }
+        
+        for ($i = $start_loop; $i <= $end_loop; $i++): ?>
           <li class="page-item <?php echo ($i == $current_page) ? 'active' : ''; ?>">
             <a class="page-link" href="<?php echo $base_url . "&page=" . $i; ?>"><?php echo $i; ?></a>
           </li>
-        <?php endfor; ?>
+        <?php endfor; 
+        
+        if ($total_pages > 5 && $end_loop < $total_pages) {
+            if ($end_loop < $total_pages - 1) {
+                echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+            echo '<li class="page-item"><a class="page-link" href="' . $base_url . '&page=' . $total_pages . '">' . $total_pages . '</a></li>';
+        }
+        ?>
         
         <li class="page-item <?php echo ($current_page >= $total_pages) ? 'disabled' : ''; ?>">
           <a class="page-link" href="<?php echo $base_url . "&page=" . $next_page; ?>" aria-label="Next">

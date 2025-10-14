@@ -23,6 +23,10 @@ switch ($path) {
         require __DIR__ . '/pages/new_password.php';
         break;
     
+    case 'donation': // <--- RUTE BARU UNTUK HALAMAN DONASI
+        require __DIR__ . '/pages/donation.php';
+        break;
+    
     case 'dashboard':
         // Ini adalah rute yang seharusnya memuat dashboard.php
         require __DIR__ . '/dashboard.php';

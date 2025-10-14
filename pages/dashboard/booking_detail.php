@@ -7,19 +7,17 @@ $booking_data = null;
 $error = null;
 
 // =========================================================================
-// FUNGSI PEMBANTU (MIMIC LOGIC)
+// FUNGSI PEMBANTU
 // =========================================================================
 
 /**
  * Fungsi dummy untuk generate nomor invoice unik.
- * Dalam sistem nyata, ini harus mengambil nomor urut terakhir dari DB
- * atau menggunakan sequence.
  */
 function generateUniqueInvoiceNumber($conn) {
     // Implementasi sederhana: Ambil jumlah total bookings, lalu tambahkan 1
-    // Dalam produksi, gunakan tabel sequence terpisah dan locking yang aman.
     $prefix = "INV/" . date("Y") . "/";
     
+    // Perhatikan: Dalam produksi, gunakan sequence yang aman dari race condition.
     $result = $conn->query("SELECT COUNT(id) AS total FROM bookings");
     $row = $result->fetch_assoc();
     $sequence = $row['total'] + 1;
@@ -27,18 +25,38 @@ function generateUniqueInvoiceNumber($conn) {
     return $prefix . str_pad($sequence, 4, '0', STR_PAD_LEFT);
 }
 
+// Fungsi untuk mengambil total harga dari sebuah booking (opsional, sebagai safety)
+function getBookingPrice($conn, $booking_id) {
+    $stmt = $conn->prepare("SELECT total_price FROM bookings WHERE id = ?");
+    $stmt->bind_param("i", $booking_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $data = $result->fetch_assoc();
+    $stmt->close();
+    return $data ? $data['total_price'] : 0;
+}
+
 
 // =========================================================================
-// LOGIC KONFIRMASI PEMBAYARAN & INVOICE GENERATION
+// LOGIC KONFIRMASI PEMBAYARAN & INVOICE GENERATION (HEADER SAFE)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'confirm_payment_and_invoice') {
     $booking_id_to_confirm = (int)($_POST['booking_id'] ?? 0);
-    
-    if ($booking_id_to_confirm === $booking_id) {
+    $redirect_url = "/dashboard?p=orders"; 
+
+    if ($booking_id_to_confirm > 0) {
+        $redirect_url = "/dashboard?p=booking_detail&id=" . $booking_id_to_confirm;
+        $conn->begin_transaction(); // Mulai transaksi
+
         try {
-            // 1. Cek apakah booking ini benar-benar milik Provider yang login
-            $stmt_check = $conn->prepare("SELECT status FROM bookings b JOIN trips t ON b.trip_id = t.id WHERE b.id = ? AND t.provider_id = ?");
-            $stmt_check->bind_param("ii", $booking_id, $actual_provider_id);
+            // 1. Cek kepemilikan, status, dan ambil harga
+            $stmt_check = $conn->prepare("
+                SELECT b.status, b.total_price 
+                FROM bookings b 
+                JOIN trips t ON b.trip_id = t.id 
+                WHERE b.id = ? AND t.provider_id = ?
+            ");
+            $stmt_check->bind_param("ii", $booking_id_to_confirm, $actual_provider_id);
             $stmt_check->execute();
             $result_check = $stmt_check->get_result();
             $current_booking = $result_check->fetch_assoc();
@@ -50,59 +68,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'confirm_payme
             if ($current_booking['status'] === 'paid' || $current_booking['status'] === 'completed') {
                 throw new Exception("Pembayaran sudah dikonfirmasi sebelumnya.");
             }
+            
+            $total_price = $current_booking['total_price']; // Ambil harga total
 
-            // 2. Generate Nomor Invoice Unik
+            // 2. Generate Invoice
             $new_invoice_number = generateUniqueInvoiceNumber($conn);
             $paid_at = date('Y-m-d H:i:s');
             
-            // 3. Update status, tanggal lunas, dan simpan nomor invoice ke DB
-            // Catatan: Asumsi kolom 'invoice_number' dan 'paid_at' sudah ada di tabel 'bookings'.
-            $stmt_update = $conn->prepare("UPDATE bookings SET status = 'paid', invoice_number = ?, paid_at = ? WHERE id = ?");
-            $stmt_update->bind_param("ssi", $new_invoice_number, $paid_at, $booking_id);
-            $stmt_update->execute();
-            $stmt_update->close();
+            // 3. Update status dan simpan nomor invoice di tabel bookings (gunakan b.invoice_number)
+            $stmt_update_booking = $conn->prepare("UPDATE bookings SET status = 'paid', invoice_number = ? WHERE id = ?");
+            $stmt_update_booking->bind_param("si", $new_invoice_number, $booking_id_to_confirm);
+            $stmt_update_booking->execute();
+            $stmt_update_booking->close();
             
-            // 4. Panggil skrip generator PDF (INI BAGIAN KRUSIAL)
-            // Note: Kita akan menggunakan URL untuk menggenerate, lalu mengambil hasilnya (seperti file),
-            // atau menggunakan include jika generate_invoice.php adalah fungsi yang mengembalikan data.
-            // Untuk kesederhanaan, kita akan menggunakan include (asumsi generate_invoice.php mengembalikan path file PDF sementara).
+            // 4. Update/Insert Payment Record di tabel payments
             
-            // Asumsi: Skrip generate_invoice.php ada di folder yang sama atau diakses via path relatif.
-            // Dalam sistem nyata, ini sering dilakukan asinkron (job queue) atau via curl/API internal.
-            // Untuk contoh ini, kita anggap script generate_invoice.php akan menggenerate dan menyimpan file sementara.
-            
-            // $pdf_path = include('generate_invoice.php'); 
-            // Namun, untuk menghindari output HTML bercampur PDF, kita akan berikan tombol download segera
-            // setelah konfirmasi. Logic generate PDF harus diakses melalui link atau include terisolasi.
+            // Periksa apakah sudah ada record payments untuk booking ini
+            $stmt_check_payment = $conn->prepare("SELECT id FROM payments WHERE booking_id = ?");
+            $stmt_check_payment->bind_param("i", $booking_id_to_confirm);
+            $stmt_check_payment->execute();
+            $result_payment = $stmt_check_payment->get_result();
+            $stmt_check_payment->close();
 
-            $_SESSION['dashboard_message'] = "Pembayaran berhasil dikonfirmasi. Status diubah menjadi PAID, dan Invoice **" . htmlspecialchars($new_invoice_number) . "** siap didownload/dikirim ke klien.";
+            if ($result_payment->num_rows > 0) {
+                // UPDATE: Jika sudah ada record (mungkin 'pending' karena upload bukti), UPDATE status dan paid_at
+                $stmt_update_payment = $conn->prepare("UPDATE payments SET status = 'paid', paid_at = ? WHERE booking_id = ?");
+                $stmt_update_payment->bind_param("si", $paid_at, $booking_id_to_confirm);
+                $stmt_update_payment->execute();
+                $stmt_update_payment->close();
+            } else {
+                // INSERT: Buat record payments baru (jika tidak ada record sama sekali, atau konfirmasi manual tanpa upload bukti)
+                // UUID() harus tersedia di MySQL Anda.
+                $stmt_insert_payment = $conn->prepare("INSERT INTO payments (booking_id, amount, method, status, paid_at, uuid) 
+                                                      VALUES (?, ?, 'Transfer Bank (Konfirmasi Admin)', 'paid', ?, UUID())");
+                $stmt_insert_payment->bind_param("ids", $booking_id_to_confirm, $total_price, $paid_at);
+                $stmt_insert_payment->execute();
+                $stmt_insert_payment->close();
+            }
+
+            $conn->commit(); // Commit transaksi
+            
+            $_SESSION['dashboard_message'] = "Pembayaran berhasil dikonfirmasi. Status diubah menjadi PAID, dan Invoice **" . htmlspecialchars($new_invoice_number) . "** siap didownload.";
             $_SESSION['dashboard_message_type'] = 'success';
             
         } catch (Exception $e) {
+            $conn->rollback(); // Rollback jika terjadi error
             $_SESSION['dashboard_message'] = "Gagal memproses konfirmasi: " . $e->getMessage();
             $_SESSION['dashboard_message_type'] = 'danger';
+            $redirect_url = "/dashboard?p=orders"; 
         }
 
-        // Redirect untuk mencegah POST submission ulang
-        header("Location: /dashboard?p=orders&id=" . $booking_id); // Redirect ke halaman booking list
+        // REDIRECT DAN EXIT SELALU DI AKHIR BLOK POST
+        header("Location: " . $redirect_url);
         exit();
     }
 }
 // =========================================================================
 
 
+// =========================================================================
+// LOGIC PENGAMBILAN DATA
+// =========================================================================
 if ($booking_id > 0) {
     try {
-        // Ambil data booking, user, dan trip terkait, pastikan milik provider yang login
-        // TAMBAHKAN kolom 'invoice_number'
+        // Query Final: Mengambil invoice_number dari bookings dan paid_at dari payments (p.paid_at)
         $stmt = $conn->prepare("
             SELECT 
                 b.*, b.invoice_number, 
                 t.title AS trip_title, 
-                u.name AS client_name, u.email AS client_email 
+                u.name AS client_name, u.email AS client_email,
+                p.paid_at /* Ambil paid_at dari tabel payments */
             FROM bookings b
             JOIN trips t ON b.trip_id = t.id
             JOIN users u ON b.user_id = u.id
+            LEFT JOIN payments p ON b.id = p.booking_id AND p.status = 'paid'
             WHERE b.id = ? AND t.provider_id = ?
         ");
         $stmt->bind_param("ii", $booking_id, $actual_provider_id);
@@ -123,13 +162,14 @@ if ($booking_id > 0) {
     $error = "ID Pemesanan tidak valid.";
 }
 
-// Redirect jika error
+// =========================================================================
+// REDIRECT JIKA TERJADI ERROR (HEADER SAFE)
+// =========================================================================
 if ($error) {
     $_SESSION['dashboard_message'] = $error;
     $_SESSION['dashboard_message_type'] = "danger";
-    // Mengganti 'bookings' ke 'orders' agar sesuai dengan peta file Anda
     header("Location: /dashboard?p=orders"); 
-    exit();
+    exit(); 
 }
 
 // Tampilkan pesan notifikasi dari session
@@ -187,7 +227,6 @@ unset($_SESSION['dashboard_message_type']);
                                 if ($status === 'paid') $badge_class = 'success';
                                 else if ($status === 'unpaid') $badge_class = 'warning text-dark';
                                 else if ($status === 'cancelled') $badge_class = 'danger';
-                                // Tambahkan status 'pending' untuk masa transisi upload bukti
                                 else if ($status === 'pending') $badge_class = 'info text-dark';
                             ?>
                             <span class="badge bg-<?php echo $badge_class; ?>"><?php echo ucfirst(htmlspecialchars($status)); ?></span>
@@ -197,6 +236,12 @@ unset($_SESSION['dashboard_message_type']);
                         <th>Tanggal Pesan</th>
                         <td><?php echo date('d M Y H:i', strtotime($booking_data['created_at'])); ?></td>
                     </tr>
+                     <?php if (!empty($booking_data['paid_at'])): // Tampilkan hanya jika ada data paid_at dari tabel payments ?>
+                    <tr>
+                        <th>Tanggal Lunas</th>
+                        <td><?php echo date('d M Y H:i', strtotime($booking_data['paid_at'])); ?></td>
+                    </tr>
+                    <?php endif; ?>
                 </table>
             </div>
         </div>
@@ -210,7 +255,6 @@ unset($_SESSION['dashboard_message_type']);
                 <b>Pembayaran Menunggu Konfirmasi!</b> Bukti transfer sudah diunggah.
             </div>
             
-            <!-- FORM BARU UNTUK MEMICU LOGIC INVOICE -->
             <form method="POST" class="mb-4" onsubmit="return confirm('Yakin ingin MENGKONFIRMASI pembayaran ini? Status akan diubah menjadi PAID, Invoice akan diterbitkan, dan Client akan menerima notifikasi.');">
                 <input type="hidden" name="action" value="confirm_payment_and_invoice">
                 <input type="hidden" name="booking_id" value="<?php echo $booking_data['id']; ?>">
@@ -227,7 +271,6 @@ unset($_SESSION['dashboard_message_type']);
                 <div>
                     Pembayaran telah <b>LUNAS</b> dikonfirmasi pada <?php echo date('d M Y H:i', strtotime($booking_data['paid_at'] ?? $booking_data['created_at'])); ?>.
                 </div>
-                <!-- Tombol Download Invoice -->
                 <a href="/generate_invoice.php?id=<?php echo $booking_data['id']; ?>" target="_blank" class="btn btn-sm btn-light">
                      <i class="bi bi-file-earmark-pdf me-1"></i> Download Invoice
                 </a>

@@ -39,6 +39,14 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     $errors[] = "Format email tidak valid.";
 }
 
+if (!isset($_POST['terms_agree'])) {
+    // Redirect kembali dengan pesan error jika checkbox tidak dicentang
+    $_SESSION['message'] = "Anda harus menyetujui Syarat dan Ketentuan untuk mendaftar.";
+    $_SESSION['message_type'] = "danger";
+    header("Location: /register.php");
+    exit();
+}
+
 // 4. Cek Keberadaan Email di Database
 if (empty($errors)) {
     // Menggunakan Prepared Statements untuk mencegah SQL Injection
