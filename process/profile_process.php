@@ -184,6 +184,35 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         // 3. Upload Logo Perusahaan
         $new_logo = upload_document('company_logo_file', $allowed_img, $max_size_logo, 'logo', $errors);
         if ($new_logo) { $logo_path = $new_logo; }
+
+        if ($action === 'update_charter_status') {
+            // Pastikan provider ID tersedia
+            if (!isset($actual_provider_id)) {
+                echo json_encode(['success' => false, 'message' => 'ID Provider tidak ditemukan.']);
+                exit();
+            }
+            
+            // Ambil status dari POST (1 atau 0)
+            $is_charter_available = (int)($_POST['is_charter_available'] ?? 0);
+            
+            try {
+                $stmt = $conn->prepare("UPDATE providers SET is_charter_available = ? WHERE id = ?");
+                $stmt->bind_param("ii", $is_charter_available, $actual_provider_id);
+                
+                if ($stmt->execute()) {
+                    echo json_encode(['success' => true, 'message' => 'Status layanan charter berhasil diperbarui.']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Gagal memperbarui database.']);
+                }
+                $stmt->close();
+                
+            } catch (Exception $e) {
+                // Log error di server
+                // error_log("Charter Update Error: " . $e->getMessage()); 
+                echo json_encode(['success' => false, 'message' => 'Terjadi kesalahan server saat update.']);
+            }
+            exit(); // Hentikan script setelah merespon AJAX
+        }
         
 
         if (empty($errors)) {
@@ -233,7 +262,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     }
                     
                     $conn->commit();
-                    $message = "Profil Perusahaan berhasil diperbarui. Status verifikasi direset, silakan ajukan ulang verifikasi.";
+                    $message = "Profil Perusahaan berhasil diperbarui. Verifikasi memakan waktu 1-2 Hari Kerja.";
                     $message_type = "success";
                 } else {
                     throw new Exception("Gagal menyimpan data provider: " . $conn->error);

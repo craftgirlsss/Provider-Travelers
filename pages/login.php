@@ -31,7 +31,9 @@ if (isset($_SESSION['user_id']) && $_SESSION['user_role'] === 'provider') {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .login-container {
-            max-width: 400px;
+            /* Mengatur ulang style card */
+            width: 100%; 
+            max-width: 450px; /* Lebar yang sedikit lebih besar untuk tampilan yang proporsional */
             padding: 30px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             border-radius: 10px;
@@ -44,13 +46,22 @@ if (isset($_SESSION['user_id']) && $_SESSION['user_role'] === 'provider') {
             align-items: center;
             min-height: 100vh;
         }
+        /* Style untuk logo */
+        .logo-login {
+            max-width: 250px; /* Mungkin sedikit diperbesar agar lebih terlihat */
+            height: auto;
+            display: block; 
+            margin: 0 auto 10px auto; 
+        }
     </style>
 </head>
 <body>
 
     <div class="login-container">
-        <h3 class="text-center mb-4 fw-bold text-primary">Login Provider</h3>
-        <p class="text-center text-muted mb-4">Masuk ke akun Anda untuk mengelola layanan.</p>
+        
+        <img src="/assets/vly.png" alt="Logo Login Provider" class="logo-login">
+        
+        <p class="text-center text-muted mb-4">Masuk ke akun Anda untuk mengelola layanan trip Anda.</p>
 
         <?php if ($message): ?>
             <div class="alert alert-<?php echo ($message_type == 'success' ? 'success' : 'danger'); ?> alert-dismissible fade show" role="alert">
@@ -70,14 +81,14 @@ if (isset($_SESSION['user_id']) && $_SESSION['user_role'] === 'provider') {
                 <input type="password" class="form-control" id="password" name="password" required placeholder="Masukkan password Anda">
             </div>
             
-            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Login</button>
+            <button type="submit" class="btn btn-dark w-100 py-2 fw-bold">Login</button>
         </form>
 
         <p class="text-end mt-3">
-            <a href="/forgot-password" class="text-decoration-none small">Lupa Password?</a>
+            <a href="/forgot-password" class="text-decoration-none small fw-bold text-dark">Lupa Password?</a>
         </p>
         <p class="text-center mt-3 small">
-            Belum punya akun? <a href="/register" class="text-decoration-none">Daftar di sini</a>
+            Belum punya akun? <a href="/register" class="text-decoration-none fw-bold text-dark">Daftar di sini</a>
         </p>
     </div>
 

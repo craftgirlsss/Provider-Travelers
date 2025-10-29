@@ -7,6 +7,14 @@
 // KONSTANTA DAN FUNGSI PEMBANTU
 // =========================================================================
 
+global $conn, $user_id_from_session, $actual_provider_id; 
+
+// 1. Sertakan file helper
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+// 2. Jalankan Fungsi Validasi
+check_provider_verification($conn, $actual_provider_id, "Laporan Keuangan");
+
 // DEFINE KOMISI (HARUS SAMA DENGAN export_report.php)
 // Ganti 0.10 dengan persentase komisi yang sebenarnya (misal: 0.08 untuk 8%)
 if (!defined('PLATFORM_COMMISSION_RATE')) {

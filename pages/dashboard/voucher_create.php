@@ -3,7 +3,11 @@
 // Form untuk Provider membuat voucher diskon baru
 
 // Pastikan variabel otorisasi dari dashboard.php tersedia
-global $actual_provider_id;
+global $conn, $actual_provider_id; 
+
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+check_provider_verification($conn, $actual_provider_id, "Buat Voucher");
 
 if (!$actual_provider_id) {
     echo "<div class='alert alert-danger'>Akses Ditolak: ID Provider tidak ditemukan.</div>";

@@ -5,6 +5,10 @@
 // Panggil variabel yang sudah disiapkan oleh dashboard.php
 global $conn, $actual_provider_id; 
 
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+check_provider_verification($conn, $actual_provider_id, "Edit Voucher");
+
 $voucher_id = (int)($_GET['id'] ?? 0);
 $error = null;
 $voucher = null; // Data voucher yang akan dimuat

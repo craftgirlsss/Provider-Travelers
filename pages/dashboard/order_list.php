@@ -2,7 +2,13 @@
 // File: pages/dashboard/order_list.php
 // Halaman untuk Provider melihat daftar pemesanan Trip mereka, DIFILTER berdasarkan Trip ID.
 
-global $conn, $actual_provider_id;
+global $conn, $user_id_from_session, $actual_provider_id; 
+
+// 1. Sertakan file helper
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+// 2. Jalankan Fungsi Validasi
+check_provider_verification($conn, $actual_provider_id, "Daftar Pemesanan");
 
 // =======================================================================
 // Persiapan Data & Filter (KODE PHP TIDAK BERUBAH)

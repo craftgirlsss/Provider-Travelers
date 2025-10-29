@@ -2,7 +2,14 @@
 // File: pages/dashboard/driver_create.php
 // Form untuk membuat Driver baru.
 
-global $conn; 
+
+global $conn, $user_id_from_session, $actual_provider_id; 
+
+// 1. Sertakan file helper
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+// 2. Jalankan Fungsi Validasi
+check_provider_verification($conn, $actual_provider_id, "Tambah Driver Baru");
 $actual_provider_id = $_SESSION['actual_provider_id'] ?? 0;
 
 if (!$actual_provider_id) {

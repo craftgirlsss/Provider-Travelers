@@ -3,6 +3,10 @@
 // Form untuk membuat Jadwal Keberangkatan (Trip Departure) baru.
 
 global $conn; // Koneksi DB
+
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+check_provider_verification($conn, $actual_provider_id, "Jadwal Keberangkatan");
 // Ambil $actual_provider_id dari session, yang sudah dijamin di dashboard.php
 $actual_provider_id = $_SESSION['actual_provider_id'] ?? 0; 
 

@@ -2,7 +2,6 @@
 // File: process/trip_process.php
 session_start();
 require_once __DIR__ . '/../config/db_config.php'; 
-// !!! PERBAIKAN 1: INCLUDE GENERATOR UUID !!!
 require_once __DIR__ . '/../includes/uuid_generator.php'; 
 
 // Validasi ukuran file POST (max 8MB)
@@ -39,13 +38,17 @@ try {
     }
     $stmt_provider->close();
 } catch (Exception $e) {
-    $_SESSION['dashboard_message'] = "Error Otorisasi: Gagal mengambil ID provider.";
+    // Logika error tetap sama
+    error_log("Error Otorisasi (Trip Process): Gagal mengambil ID provider. User ID: " . $user_id_from_session . " Error: " . $e->getMessage());
+    $_SESSION['dashboard_message'] = "Error Otorisasi: Gagal mengambil ID provider. Silakan coba lagi.";
     $_SESSION['dashboard_message_type'] = "danger";
     header("Location: /dashboard?p=trips");
     exit();
 }
 
 if (!$actual_provider_id) {
+    // Logika error tetap sama
+    error_log("Error Otorisasi (Trip Process): Akun provider tidak terdaftar. User ID: " . $user_id_from_session);
     $_SESSION['dashboard_message'] = "Error Otorisasi: Akun provider tidak terdaftar dengan benar di tabel providers.";
     $_SESSION['dashboard_message_type'] = "danger";
     header("Location: /dashboard?p=trips");
@@ -59,27 +62,53 @@ $redirect_page = 'trips';
 if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
 
     $errors = [];
+    $redirect_page = 'trip_create';
     
-    // !!! PERBAIKAN 2: GENERATE UUID !!!
+    // !!! GENERATE UUID !!!
     $uuid = generate_uuid(); 
 
     // Ambil semua input
     $title = trim($_POST['title'] ?? '');
     $location = trim($_POST['location'] ?? ''); 
-    $description = trim($_POST['description'] ?? '');
+    // === PERBAIKAN 1: MENGAMBIL FIELD DESKRIPSI YANG SUDAH DIREVISI ===
+    $description = trim($_POST['description'] ?? ''); 
     $duration = trim($_POST['duration'] ?? '');
+
+    // Ambil input baru
+    $trip_type = trim($_POST['trip_type'] ?? 'local'); // Default 'local'
+
+    // Ambil input bersyarat
+    if ($trip_type === 'international') {
+        $international_transport_type = trim($_POST['international_transport_type'] ?? '');
+        $international_transport_detail = trim($_POST['international_transport_detail'] ?? '');
+    } else {
+        $international_transport_type = NULL;
+        $international_transport_detail = NULL;
+    }
     
-    // KOLOM BARU
+    // Titik Kumpul & Jadwal
     $gathering_point_name = trim($_POST['gathering_point_name'] ?? '');
     $gathering_point_url = trim($_POST['gathering_point_url'] ?? '');
     $departure_time = trim($_POST['departure_time'] ?? ''); 
     $return_time = trim($_POST['return_time'] ?? '');       
 
+    // Layanan Tambahan (Perbaikan: Ambil dan konversi nilai)
+    $vehicle_id = (int)($_POST['vehicle_id'] ?? 0); 
+    
+    $has_accommodation = isset($_POST['has_accommodation']) ? 1 : 0;
+    $accommodation_details = $has_accommodation ? trim($_POST['accommodation_details'] ?? '') : NULL;
+    
+    $has_tour_guide = isset($_POST['has_tour_guide']) ? 1 : 0;
+    $main_guide_id = $has_tour_guide ? (int)($_POST['main_guide_id'] ?? 0) : NULL;
+
+    // Tanggal
     $raw_start_date = trim($_POST['start_date'] ?? '');
     $raw_end_date = trim($_POST['end_date'] ?? '');
 
     $start_date = '';
     $end_date = '';
+    $start_date_obj = null;
+    $end_date_obj = null;
 
     if (!empty($raw_start_date)) {
         try {
@@ -98,12 +127,24 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
             $errors[] = "Format tanggal berakhir tidak valid.";
         }
     }
+    
+    // --- VALIDASI KRUSIAL TANGGAL ---
+    if ($start_date_obj && $end_date_obj) {
+        if ($end_date_obj < $start_date_obj) {
+            $errors[] = "Tanggal berakhir trip (" . $end_date_obj->format('d M Y') . ") tidak boleh lebih awal dari tanggal mulai (" . $start_date_obj->format('d M Y') . ").";
+        }
+        $today = new DateTime('today');
+        if ($start_date_obj < $today) {
+            $errors[] = "Tanggal mulai trip harus hari ini atau di masa depan.";
+        }
+    }
 
-
+    // Pricing & Kuota
+    // === PERBAIKAN 2: MENGAMBIL FIELD KUOTA YANG SUDAH DIREVISI ===
     $max_quota = (int)($_POST['max_participants'] ?? 0); 
-    $price = (float)($_POST['price'] ?? 0);
-    $discount_price = (float)($_POST['discount_price'] ?? 0);
-    $status = $_POST['status'] ?? 'draft';
+    $price = (float)($_POST['price'] ?? 0); 
+    $discount_price = (float)($_POST['discount_price'] ?? 0); 
+    $status = $_POST['status'] ?? 'available'; 
     $booked_participants = 0;
     $approval_status = 'pending'; 
 
@@ -111,17 +152,33 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
     if (empty($title) || empty($location) || empty($description) || empty($duration) ||
         empty($start_date) || empty($end_date) || $max_quota < 1 || $price <= 0 ||
         empty($gathering_point_name) || empty($gathering_point_url) || 
-        empty($departure_time) || empty($return_time)) {
-        $errors[] = "Semua kolom dengan tanda (*) wajib diisi dengan benar.";
+        empty($departure_time) || empty($return_time) || $vehicle_id < 1) { // VALIDASI VEHICLE_ID TETAP
+        $errors[] = "Semua kolom dengan tanda (*) wajib diisi dengan benar, termasuk Kendaraan Utama.";
+    }
+
+    // Validasi input wajib untuk International
+    if ($trip_type === 'international') {
+        if (empty($international_transport_type)) {
+            $errors[] = "Tipe transportasi internasional wajib dipilih.";
+        }
+        if (empty($international_transport_detail)) {
+            $errors[] = "Detail transportasi internasional (nomor penerbangan/kapal) wajib diisi.";
+        }
+    }
+
+    if ($has_accommodation && empty($accommodation_details)) {
+        $errors[] = "Detail Akomodasi wajib diisi jika fitur hotel diaktifkan.";
+    }
+    
+    if ($has_tour_guide && $main_guide_id < 1) {
+        $errors[] = "Pemandu Utama wajib dipilih jika fitur pemandu diaktifkan.";
     }
 
     if ($discount_price > 0 && $discount_price >= $price) {
         $errors[] = "Harga diskon harus lebih rendah dari harga normal.";
     }
     
-    // ==========================================================
     // --- PROSES UPLOAD GAMBAR UTAMA ---
-    // ==========================================================
     $main_image_path = null;
     $upload_dir = __DIR__ . '/../uploads/trips/';
     $allowed_types = ['image/jpeg', 'image/png', 'image/jpg'];
@@ -138,7 +195,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
             $errors[] = "Ukuran file gambar utama melebihi batas 2MB.";
         } else {
             $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            // Gunakan $uuid di nama file agar unik dan mudah diidentifikasi (opsional, tapi baik)
             $new_file_name = 'trip_' . $uuid . '_main.' . $file_extension;
             $destination_path = $upload_dir . $new_file_name;
 
@@ -152,9 +208,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
         $errors[] = "Gambar utama trip wajib diupload.";
     }
 
-    // ==========================================================
     // --- PROSES UPLOAD GAMBAR TAMBAHAN (Multiple) ---
-    // ==========================================================
     $additional_images = [];
     if (isset($_FILES['additional_images']) && count($_FILES['additional_images']['name']) > 0) {
         $file_array = $_FILES['additional_images'];
@@ -181,7 +235,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
                 }
 
                 $file_extension = pathinfo($file_array['name'][$i], PATHINFO_EXTENSION);
-                // Gunakan $uuid di nama file tambahan
                 $new_file_name = 'trip_' . $uuid . '_add_' . ($i + 1) . '.' . $file_extension;
                 $destination_path = $upload_dir . $new_file_name;
                 
@@ -205,10 +258,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
                 unlink(__DIR__ . '/../' . $path);
             }
         }
+        // !!! LOG ERROR !!!
+        error_log("CREATE TRIP FAILED - Validation Errors: " . implode(" | ", $errors) . " by Provider ID: " . $actual_provider_id);
 
         $_SESSION['dashboard_message'] = implode("<br>", $errors);
         $_SESSION['dashboard_message_type'] = "danger";
-        header("Location: /dashboard?p=trip_create");
+        header("Location: /dashboard?p=" . $redirect_page);
         exit();
     }
 
@@ -216,24 +271,27 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
     $conn->begin_transaction();
 
     try {
-        // !!! PERBAIKAN 3: TAMBAHKAN KOLOM UUID DI QUERY !!!
-        // Query dengan 18 placeholders (?)
+        // PERBAIKAN: Kolom sudah benar
         $stmt = $conn->prepare("INSERT INTO trips (
             uuid, provider_id, title, description, duration, location, 
+            trip_type, international_transport_type, international_transport_detail,
             gathering_point_name, gathering_point_url, departure_time, return_time, 
             price, max_participants, booked_participants, start_date, end_date, 
-            status, approval_status, discount_price
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            status, approval_status, discount_price, 
+            has_accommodation, accommodation_details, has_tour_guide, main_guide_id, vehicle_id 
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         
-        // !!! PERBAIKAN 4: TAMBAHKAN 's' UNTUK UUID DI BIND_PARAM (18 parameter) !!!
-        // Tipe Data Bind: s i s s s s s s s s d i i s s s s d
-        $stmt->bind_param("sissssssssdiissdsd", 
-            $uuid, // <-- UUID Parameter
+        // Tipe Data Bind: s i s s s s s s s s d i i s s s s d i s i i i
+        $stmt->bind_param("sisssssssssssdiissdsdisiii", 
+            $uuid, 
             $actual_provider_id,
             $title,
             $description,
             $duration,
             $location,
+            $trip_type,                          // BARU
+            $international_transport_type,       // BARU
+            $international_transport_detail,     // BARU
             $gathering_point_name,
             $gathering_point_url,
             $departure_time,
@@ -245,7 +303,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
             $end_date,
             $status,
             $approval_status,
-            $discount_price
+            $discount_price,
+            $has_accommodation,      
+            $accommodation_details,  
+            $has_tour_guide,         
+            $main_guide_id,          
+            $vehicle_id              
         );
 
         if ($stmt->execute()) {
@@ -292,93 +355,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
                 unlink(__DIR__ . '/../' . $path);
             }
         }
+        // !!! LOG ERROR !!!
+        error_log("CREATE TRIP FAILED - DB Error: " . $e->getMessage() . " by Provider ID: " . $actual_provider_id);
 
         $_SESSION['dashboard_message'] = "Terjadi kesalahan sistem: " . $e->getMessage();
         $_SESSION['dashboard_message_type'] = "danger";
-        header("Location: /dashboard?p=trip_create");
+        header("Location: /dashboard?p=" . $redirect_page);
         exit();
     }
-} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'delete_trip') {
-    // ... (Logika delete_trip tetap sama) ...
-    
-    $trip_id = (int)($_POST['trip_id'] ?? 0);
-    $redirect_page = 'trips';
-    $message = "Aksi gagal.";
-    $message_type = "danger";
-
-    if ($trip_id > 0) {
-        try {
-            $stmt = $conn->prepare("UPDATE trips SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND provider_id = ?");
-            $stmt->bind_param("ii", $trip_id, $actual_provider_id); 
-            $stmt->execute();
-
-            if ($stmt->affected_rows > 0) {
-                $message = "Trip berhasil diarsip dan disembunyikan dari daftar aktif.";
-                $message_type = "success";
-            } else {
-                $message = "Gagal mengarsip trip. ID tidak ditemukan atau Anda tidak memiliki izin.";
-                $message_type = "danger";
-            }
-            $stmt->close();
-
-        } catch (Exception $e) {
-            $message = "Kesalahan database saat mengarsip trip: " . $e->getMessage();
-            $message_type = "danger";
-        }
-    } else {
-        $message = "ID Trip tidak valid.";
-        $message_type = "danger";
-    }
-    
-    $_SESSION['dashboard_message'] = $message;
-    $_SESSION['dashboard_message_type'] = $message_type;
-    header("Location: /dashboard?p=" . $redirect_page);
-    exit();
-
-} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'restore_trip') {
-    // ... (Logika restore_trip tetap sama) ...
-    
-    $trip_id = (int)($_POST['trip_id'] ?? 0);
-    $redirect_page = 'trip_archive';
-    $message = "Aksi gagal.";
-    $message_type = "danger";
-
-    if ($trip_id > 0) {
-        try {
-            $stmt = $conn->prepare("UPDATE trips SET is_deleted = 0, updated_at = NOW() WHERE id = ? AND provider_id = ?");
-            $stmt->bind_param("ii", $trip_id, $actual_provider_id);
-            $stmt->execute();
-
-            if ($stmt->affected_rows > 0) {
-                $message = "Trip berhasil dikembalikan ke daftar aktif.";
-                $message_type = "success";
-            } else {
-                $message = "Gagal mengembalikan trip. ID tidak ditemukan atau Anda tidak memiliki izin.";
-                $message_type = "danger";
-            }
-            $stmt->close();
-
-        } catch (Exception $e) {
-            $message = "Kesalahan database saat mengembalikan trip: " . $e->getMessage();
-            $message_type = "danger";
-        }
-    } else {
-        $message = "ID Trip tidak valid.";
-        $message_type = "danger";
-    }
-    
-    $_SESSION['dashboard_message'] = $message;
-    $_SESSION['dashboard_message_type'] = $message_type;
-    header("Location: /dashboard?p=" . $redirect_page);
-    exit();
-
 } elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'update_trip') {
-    // ... (Logika update_trip tetap sama) ...
+    // ... (Logika update_trip) ...
 
     $errors = [];
     $trip_id = (int)($_POST['trip_id'] ?? 0);
     $existing_image_url = null;
-    $redirect_to_form = "trip_edit&id=" . $trip_id; // Set redirect form
+    $redirect_to_form = "trip_edit&id=" . $trip_id; 
     
     if ($trip_id <= 0) {
         $errors[] = "ID Trip tidak valid untuk pembaruan.";
@@ -398,9 +389,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
         $stmt_check->close();
     }
 
-
     $title = trim($_POST['title'] ?? '');
-    $location = trim($_POST['location'] ?? ''); // Perbaikan: gunakan 'location'
+    $location = trim($_POST['location'] ?? ''); 
     $description = trim($_POST['description'] ?? '');
     $duration = trim($_POST['duration'] ?? '');
 
@@ -410,30 +400,69 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
     $departure_time = trim($_POST['departure_time'] ?? ''); 
     $return_time = trim($_POST['return_time'] ?? '');
 
+    // Layanan Tambahan (Perbaikan: Ambil dan konversi nilai)
+    $vehicle_id = (int)($_POST['vehicle_id'] ?? 0); // Field baru
+    
+    $has_accommodation = isset($_POST['has_accommodation']) ? 1 : 0;
+    $accommodation_details = $has_accommodation ? trim($_POST['accommodation_details'] ?? '') : NULL;
+    
+    $has_tour_guide = isset($_POST['has_tour_guide']) ? 1 : 0;
+    $main_guide_id = $has_tour_guide ? (int)($_POST['main_guide_id'] ?? 0) : NULL;
+
     $raw_start_date = $_POST['start_date'] ?? '';
     $raw_end_date = $_POST['end_date'] ?? '';
 
     $start_date = ''; 
     $end_date = '';
-    if (!empty($raw_start_date) && !empty($raw_end_date)) {
+    $start_date_obj = null;
+    $end_date_obj = null;
+    
+    if (!empty($raw_start_date)) {
         try {
-            $start_date = (new DateTime($raw_start_date))->format('Y-m-d');
-            $end_date = (new DateTime($raw_end_date))->format('Y-m-d');
+            $start_date_obj = new DateTime($raw_start_date);
+            $start_date = $start_date_obj->format('Y-m-d');
         } catch (Exception $e) {
-            $errors[] = "Format tanggal mulai atau akhir tidak valid.";
+            $errors[] = "Format tanggal mulai tidak valid.";
         }
     }
 
-    $max_quota = (int)($_POST['max_participants'] ?? 0); // Perbaikan: gunakan 'max_participants'
-    $price = (float)($_POST['price'] ?? 0);
-    $discount_price = (float)($_POST['discount_price'] ?? 0);
-    $status = $_POST['status'] ?? 'draft';
+    if (!empty($raw_end_date)) {
+        try {
+            $end_date_obj = new DateTime($raw_end_date);
+            $end_date = $end_date_obj->format('Y-m-d');
+        } catch (Exception $e) {
+            $errors[] = "Format tanggal berakhir tidak valid.";
+        }
+    }
+    
+    // --- VALIDASI KRUSIAL TANGGAL (UPDATE) ---
+    if ($start_date_obj && $end_date_obj) {
+        if ($end_date_obj < $start_date_obj) {
+            $errors[] = "Tanggal berakhir trip (" . $end_date_obj->format('d M Y') . ") tidak boleh lebih awal dari tanggal mulai (" . $start_date_obj->format('d M Y') . ").";
+        }
+    }
+    // ==========================================================
+
+    // Pricing & Kuota
+    $max_quota = (int)($_POST['max_participants'] ?? 0); // Field sudah benar
+    $price = (float)($_POST['price'] ?? 0); 
+    $discount_price = (float)($_POST['discount_price'] ?? 0); 
+    $status = $_POST['status'] ?? 'available'; 
 
     // 2. Validasi Input
     if (empty($title) || empty($location) || empty($description) || empty($duration) || empty($start_date) || empty($end_date) || $max_quota < 1 || $price <= 0 ||
-        empty($gathering_point_name) || empty($gathering_point_url) || empty($departure_time) || empty($return_time)) {
-        $errors[] = "Semua kolom dengan tanda (*) harus diisi dengan benar.";
+        empty($gathering_point_name) || empty($gathering_point_url) || empty($departure_time) || empty($return_time) || $vehicle_id < 1) { // VALIDASI VEHICLE_ID TETAP
+        $errors[] = "Semua kolom dengan tanda (*) harus diisi dengan benar, termasuk Kendaraan Utama.";
     }
+
+    if ($has_accommodation && empty($accommodation_details)) {
+        $errors[] = "Detail Akomodasi wajib diisi jika fitur hotel diaktifkan.";
+    }
+    
+    if ($has_tour_guide && $main_guide_id < 1) {
+        $errors[] = "Pemandu Utama wajib dipilih jika fitur pemandu diaktifkan.";
+    }
+
     if ($max_quota < $booked_participants) {
         $errors[] = "Kuota maksimal tidak boleh kurang dari jumlah peserta yang sudah booking ($booked_participants).";
     }
@@ -446,7 +475,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
 
     // 3. Proses Upload Gambar BARU (Opsional)
     if (empty($errors) && isset($_FILES['main_image']) && $_FILES['main_image']['error'] === UPLOAD_ERR_OK) {
-        // (Gunakan logic upload yang sama dari create_trip.php)
         $file = $_FILES['main_image'];
         $allowed_types = ['image/jpeg', 'image/png', 'image/jpg'];
         $max_size = 2 * 1024 * 1024; 
@@ -477,21 +505,26 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
         $conn->begin_transaction();
 
         try {
-            // A. UPDATE ke Tabel trips (Tambahkan kolom baru di SET)
+            // PERBAIKAN: Kolom sudah benar
             $stmt = $conn->prepare("UPDATE trips SET 
                 title = ?, description = ?, duration = ?, location = ?, 
-                gathering_point_name = ?, gathering_point_url = ?, departure_time = ?, return_time = ?, /* BARU */
+                gathering_point_name = ?, gathering_point_url = ?, departure_time = ?, return_time = ?, 
                 price = ?, max_participants = ?, start_date = ?, end_date = ?, 
-                status = ?, discount_price = ?, updated_at = NOW()
+                status = ?, discount_price = ?, updated_at = NOW(),
+                has_accommodation = ?, accommodation_details = ?, has_tour_guide = ?, main_guide_id = ?, vehicle_id = ?
                 WHERE id = ? AND provider_id = ?");
             
-            // Tipe Data Bind (14 kolom di SET + 2 kolom di WHERE = 16 parameter)
-            // String: s s s s s s s s d i s s s d i i
-            $stmt->bind_param("ssssssssdsdsii", 
+            // Tipe Data Bind (21 parameter)
+            $stmt->bind_param("ssssssssdsdsdisiiiiii", 
                 $title, $description, $duration, $location, 
-                $gathering_point_name, $gathering_point_url, $departure_time, $return_time, // BARU
+                $gathering_point_name, $gathering_point_url, $departure_time, $return_time, 
                 $price, $max_quota, $start_date, $end_date, 
                 $status, $discount_price,
+                $has_accommodation,      
+                $accommodation_details,  
+                $has_tour_guide,         
+                $main_guide_id,          
+                $vehicle_id,             
                 $trip_id, $actual_provider_id
             );
 
@@ -540,6 +573,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
             if ($image_path && file_exists(__DIR__ . '/../' . $image_path) && $new_image_uploaded) {
                 unlink(__DIR__ . '/../' . $image_path); 
             }
+            // !!! LOG ERROR !!!
+            error_log("UPDATE TRIP FAILED - DB Error: " . $e->getMessage() . " for Trip ID: " . $trip_id . " by Provider ID: " . $actual_provider_id);
+
         }
     }
     
@@ -548,8 +584,87 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'create_trip') {
     header("Location: /dashboard?p=" . $redirect_to_form); 
     exit();
 }
-// ... (Logic submit_for_verification tetap sama) ...
-elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'submit_for_verification') {
+
+// ... (Logika delete_trip, restore_trip, submit_for_verification tetap sama) ...
+elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'delete_trip') {
+    // ... (Logika delete_trip) ...
+    
+    $trip_id = (int)($_POST['trip_id'] ?? 0);
+    $redirect_page = 'trips';
+    $message = "Aksi gagal.";
+    $message_type = "danger";
+
+    if ($trip_id > 0) {
+        try {
+            $stmt = $conn->prepare("UPDATE trips SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND provider_id = ?");
+            $stmt->bind_param("ii", $trip_id, $actual_provider_id); 
+            $stmt->execute();
+
+            if ($stmt->affected_rows > 0) {
+                $message = "Trip berhasil diarsip dan disembunyikan dari daftar aktif.";
+                $message_type = "success";
+            } else {
+                $message = "Gagal mengarsip trip. ID tidak ditemukan atau Anda tidak memiliki izin.";
+                $message_type = "danger";
+            }
+            $stmt->close();
+
+        } catch (Exception $e) {
+            $message = "Kesalahan database saat mengarsip trip: " . $e->getMessage();
+            $message_type = "danger";
+            // !!! LOG ERROR !!!
+            error_log("DELETE TRIP FAILED - DB Error: " . $e->getMessage() . " for Trip ID: " . $trip_id . " by Provider ID: " . $actual_provider_id);
+        }
+    } else {
+        $message = "ID Trip tidak valid.";
+        $message_type = "danger";
+    }
+    
+    $_SESSION['dashboard_message'] = $message;
+    $_SESSION['dashboard_message_type'] = $message_type;
+    header("Location: /dashboard?p=" . $redirect_page);
+    exit();
+
+} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'restore_trip') {
+    // ... (Logika restore_trip) ...
+    
+    $trip_id = (int)($_POST['trip_id'] ?? 0);
+    $redirect_page = 'trip_archive';
+    $message = "Aksi gagal.";
+    $message_type = "danger";
+
+    if ($trip_id > 0) {
+        try {
+            $stmt = $conn->prepare("UPDATE trips SET is_deleted = 0, updated_at = NOW() WHERE id = ? AND provider_id = ?");
+            $stmt->bind_param("ii", $trip_id, $actual_provider_id);
+            $stmt->execute();
+
+            if ($stmt->affected_rows > 0) {
+                $message = "Trip berhasil dikembalikan ke daftar aktif.";
+                $message_type = "success";
+            } else {
+                $message = "Gagal mengembalikan trip. ID tidak ditemukan atau Anda tidak memiliki izin.";
+                $message_type = "danger";
+            }
+            $stmt->close();
+
+        } catch (Exception $e) {
+            $message = "Kesalahan database saat mengembalikan trip: " . $e->getMessage();
+            $message_type = "danger";
+            // !!! LOG ERROR !!!
+            error_log("RESTORE TRIP FAILED - DB Error: " . $e->getMessage() . " for Trip ID: " . $trip_id . " by Provider ID: " . $actual_provider_id);
+        }
+    } else {
+        $message = "ID Trip tidak valid.";
+        $message_type = "danger";
+    }
+    
+    $_SESSION['dashboard_message'] = $message;
+    $_SESSION['dashboard_message_type'] = $message_type;
+    header("Location: /dashboard?p=" . $redirect_page);
+    exit();
+
+} elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'submit_for_verification') {
         
     $redirect_page = 'profile';
     $message = "Gagal mengajukan verifikasi.";
@@ -577,6 +692,8 @@ elseif ($_SERVER["REQUEST_METHOD"] === "POST" && $action === 'submit_for_verific
         
     } catch (Exception $e) {
         $message = "Terjadi kesalahan sistem: " . $e->getMessage();
+        // !!! LOG ERROR !!!
+        error_log("VERIFICATION SUBMISSION FAILED - DB Error: " . $e->getMessage() . " for User ID: " . $user_id);
     }
     
     $_SESSION['dashboard_message'] = $message;

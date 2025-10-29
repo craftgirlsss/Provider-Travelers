@@ -30,16 +30,15 @@ if (isset($_SESSION['message'])) {
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            padding: 20px; /* Tambahkan padding agar tidak menempel di tepi layar kecil */
+            padding: 20px; 
         }
         .register-container {
-            width: 100%; /* Agar bisa mengambil lebar penuh di mobile */
+            width: 100%; 
             max-width: 500px; /* Batasan lebar di desktop */
             padding: 30px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             border-radius: 10px;
             background-color: #ffffff;
-            /* Tambahkan margin vertical otomatis agar centring flexbox bekerja */
             margin-top: auto; 
             margin-bottom: auto;
         }
@@ -47,14 +46,22 @@ if (isset($_SESSION['message'])) {
             box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
             border-color: #0d6efd;
         }
+        /* Style baru untuk logo */
+        .logo-register {
+            max-width: 250px; /* Atur lebar maksimal gambar */
+            height: auto;
+            display: block; 
+            margin: 0 auto 10px auto; /* Memposisikan di tengah */
+        }
     </style>
 </head>
 <body>
 
     <div class="register-container">
-        <h3 class="text-center mb-4 fw-bold text-primary">Daftar Akun Provider</h3>
+        
+        <img src="/assets/vly.png" alt="Logo Pendaftaran Provider" class="logo-register">
+        
         <p class="text-center text-muted mb-4">Buat akun Anda untuk mulai memposting layanan Trip.</p>
-
         <?php if ($message): ?>
             <div class="alert alert-<?php echo ($message_type == 'success' ? 'success' : 'danger'); ?> alert-dismissible fade show" role="alert">
                 <?php echo htmlspecialchars($message); ?>
@@ -93,14 +100,15 @@ if (isset($_SESSION['message'])) {
             <div class="form-check mb-4">
                 <input class="form-check-input" type="checkbox" value="1" id="terms_agree" name="terms_agree" required>
                 <label class="form-check-label" for="terms_agree">
-                    Saya menyetujui <a href="#" class="text-decoration-none" data-bs-toggle="modal" data-bs-target="#termsModal">Syarat dan Ketentuan</a> yang berlaku dari PT. Karya Developer Indonesia.
+                    Saya menyetujui <a href="#" class="text-decoration-none fw-bold text-dark" data-bs-toggle="modal" data-bs-target="#termsModal">Syarat dan Ketentuan</a> yang berlaku dari PT. Karya Developer Indonesia.
                 </label>
             </div>
-            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Daftar Sekarang</button>
+            <button type="submit" class="btn btn-dark w-100 py-2 fw-bold">Daftar Sekarang</button>
         </form>
 
         <p class="text-center mt-4">
-            Sudah punya akun? <a href="login.php" class="text-decoration-none">Login di sini</a>
+            Sudah punya akun? 
+            <a href="/login" class="text-decoration-none fw-bold text-dark">Login di sini</a>
         </p>
     </div>
 

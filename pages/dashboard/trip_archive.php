@@ -1,13 +1,14 @@
 <?php
 // File: pages/dashboard/trip_archive.php
-// Menampilkan daftar Trip yang sudah terlewat tanggalnya (Riwayat Selesai)
-// dan Trip yang sudah dihapus/diarsipkan manual (Trip Dihapus).
+// Menampilkan daftar Trip yang sudah terlewat tanggalnya (Riwayat Selesai),
+// Trip yang sudah dihapus/diarsipkan manual, dan Trip Pending yang sudah lewat tanggal mulai.
 
 global $conn, $actual_provider_id;
 
 $error = null;
 $completed_trips = []; // Trip yang sudah selesai (end_date < CURDATE())
 $deleted_trips = [];    // Trip yang dihapus/diarsipkan manual (is_deleted = 1)
+$pending_risky_trips = []; // Trip pending yang tanggal mulainya sudah lewat/tiba
 $provider_id = $actual_provider_id ?? 0;
 
 if (!$provider_id) {
@@ -59,6 +60,29 @@ if (!$error) {
         $stmt_deleted->execute();
         $deleted_trips = $stmt_deleted->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt_deleted->close();
+
+        // ==========================================================
+        // 3. QUERY: TRIP PENDING BERISIKO (Pending & Start Date <= Today)
+        // ==========================================================
+        $sql_pending_risky = "
+            SELECT 
+                id, title, location, start_date, end_date, price, approval_status
+            FROM 
+                trips 
+            WHERE 
+                provider_id = ? 
+                AND is_deleted = 0
+                AND approval_status = 'pending'
+                AND start_date <= CURDATE()
+            ORDER BY 
+                start_date DESC
+        ";
+            
+        $stmt_pending_risky = $conn->prepare($sql_pending_risky);
+        $stmt_pending_risky->bind_param("i", $provider_id);
+        $stmt_pending_risky->execute();
+        $pending_risky_trips = $stmt_pending_risky->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_pending_risky->close();
 
     } catch (Exception $e) {
         $error = "Gagal memuat riwayat trip: " . $e->getMessage();
@@ -120,6 +144,11 @@ if (!$error) {
             <i class="bi bi-trash me-1"></i> Trip Dihapus (<?php echo count($deleted_trips); ?>)
         </button>
     </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="pending-risky-tab" data-bs-toggle="tab" data-bs-target="#pending-risky" type="button" role="tab" aria-controls="pending-risky" aria-selected="false">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i> Pending Berisiko (<?php echo count($pending_risky_trips); ?>)
+        </button>
+    </li>
 </ul>
 
 <div class="tab-content">
@@ -145,7 +174,6 @@ if (!$error) {
                         <h5 class="card-title text-dark"><?php echo htmlspecialchars($trip['title']); ?></h5>
                         <div class="trip-info-item">
                             <i class="bi bi-geo-alt-fill me-1"></i> <?php echo htmlspecialchars($trip['location']); ?>
-                            <span class="text-muted ms-3">ID: #<?php echo htmlspecialchars($trip['id']); ?></span>
                         </div>
                     </div>
                     
@@ -169,12 +197,7 @@ if (!$error) {
                         </span>
                     </div>
 
-                    <div class="text-end">
-                        <a href="/dashboard?p=trip_detail&id=<?php echo $trip['id']; ?>" class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-eye"></i> Detail
-                        </a>
                     </div>
-                </div>
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
@@ -196,7 +219,6 @@ if (!$error) {
                         <h5 class="card-title text-dark"><?php echo htmlspecialchars($trip['title']); ?></h5>
                         <div class="trip-info-item">
                             <i class="bi bi-geo-alt-fill me-1"></i> <?php echo htmlspecialchars($trip['location']); ?>
-                            <span class="text-muted ms-3">ID: #<?php echo htmlspecialchars($trip['id']); ?></span>
                         </div>
                     </div>
                     
@@ -226,6 +248,67 @@ if (!$error) {
                             <input type="hidden" name="trip_id" value="<?php echo $trip['id']; ?>">
                             <button type="submit" class="btn btn-sm btn-success">
                                 <i class="bi bi-arrow-counterclockwise"></i> Pulihkan
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+    
+    <div class="tab-pane fade" id="pending-risky" role="tabpanel" aria-labelledby="pending-risky-tab">
+        <p class="text-muted small mb-3">Daftar Trip yang tanggal mulainya sudah lewat/tiba, namun <b>masih menunggu persetujuan Admin</b>.</p>
+
+        <?php if (empty($pending_risky_trips)): ?>
+            <div class="alert alert-success text-center m-0 shadow-sm">
+                <i class="bi bi-check-circle me-2"></i> Tidak ada Trip Pending yang berisiko.
+            </div>
+        <?php else: ?>
+            <div class="alert alert-danger shadow-sm">
+                <i class="bi bi-lightning-fill me-2"></i> <b>Peringatan!</b> Trip ini sudah lewat tanggal mulai. Segera hubungi Admin untuk persetujuan atau arsipkan.
+            </div>
+            <div class="d-grid gap-3">
+                <?php foreach ($pending_risky_trips as $trip): 
+                    // Set class dan badge untuk Pending
+                    $status_class = 'border-pending';
+                    $badge_bg = 'bg-warning text-dark';
+                ?>
+                <div class="p-3 shadow-sm trip-list-card d-flex align-items-center <?php echo $status_class; ?>">
+                    
+                    <div class="flex-grow-1 me-3">
+                        <h5 class="card-title text-dark"><?php echo htmlspecialchars($trip['title']); ?></h5>
+                        <div class="trip-info-item">
+                            <i class="bi bi-geo-alt-fill me-1"></i> <?php echo htmlspecialchars($trip['location']); ?>
+                        </div>
+                    </div>
+                    
+                    <div class="text-nowrap me-3 d-none d-md-block" style="min-width: 200px;">
+                        <div class="trip-info-item">
+                            <i class="bi bi-calendar-x me-1"></i> Periode:
+                        </div>
+                        <div class="fw-bold text-danger small">
+                            <?php echo date('d M Y', strtotime($trip['start_date'])) . " - " . date('d M Y', strtotime($trip['end_date'])); ?>
+                        </div>
+                    </div>
+
+                    <div class="text-end me-3 d-none d-sm-block" style="min-width: 120px;">
+                        <div class="trip-info-item">Harga Dasar:</div>
+                        <div class="price-tag"><?php echo "Rp " . number_format($trip['price'], 0, ',', '.'); ?></div>
+                    </div>
+                    
+                    <div class="status-area text-center me-3">
+                        <span class="badge <?php echo $badge_bg; ?> py-2 px-3">
+                            PENDING
+                        </span>
+                    </div>
+
+                    <div class="text-end">
+                        <form action="/process/trip_process.php" method="POST" class="d-inline" onsubmit="return confirm('Apakah Anda yakin ingin MENGARSIPKAN Trip yang sudah lewat ini?');">
+                            <input type="hidden" name="action" value="delete_trip">
+                            <input type="hidden" name="trip_id" value="<?php echo $trip['id']; ?>">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Arsipkan Trip ini">
+                                <i class="bi bi-archive-fill"></i> Arsipkan
                             </button>
                         </form>
                     </div>

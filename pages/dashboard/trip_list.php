@@ -4,6 +4,12 @@
 // Panggil variabel yang sudah disiapkan oleh dashboard.php
 global $conn, $user_id_from_session, $actual_provider_id; 
 
+// 1. Sertakan file helper
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+// 2. Jalankan Fungsi Validasi
+check_provider_verification($conn, $actual_provider_id, "Daftar Trip Aktif");
+
 // =======================================================================
 // LOGIC PENGAMBILAN DATA (Tidak berubah, karena sudah benar)
 // =======================================================================
@@ -11,6 +17,7 @@ global $conn, $user_id_from_session, $actual_provider_id;
 $error = null;
 $trips = [];
 $provider_id_used = null;
+$provider_id_used = $actual_provider_id ?? 0;
 
 // Pastikan variabel utama sudah tersedia dari dashboard.php.
 if (!isset($user_id_from_session) || !$user_id_from_session || !isset($actual_provider_id) || !$actual_provider_id) {
@@ -64,6 +71,7 @@ try {
                         WHERE t.provider_id = ?
                         AND t.is_deleted = 0
                         AND t.end_date >= CURDATE()
+                        AND NOT (t.approval_status = 'pending' AND t.start_date <= CURDATE())
                         ORDER BY t.created_at ASC");
         
         $stmt->bind_param("i", $provider_id_used);
@@ -227,9 +235,27 @@ function format_rupiah($angka) {
                         </div>
 
                         <div class="mt-auto d-flex justify-content-between pt-2 border-top">
-                            <a href="/dashboard?p=trip_edit&id=<?php echo htmlspecialchars($trip['uuid']); ?>" class="btn btn-sm btn-outline-primary flex-fill me-2">
-                                <i class="bi bi-pencil me-1"></i> Edit Detail
-                            </a>
+                            <?php
+                                // Tentukan apakah trip dapat diedit
+                                // Trip dapat diedit jika approval_status BUKAN 'approved'.
+                                $can_edit = ($trip['approval_status'] !== 'approved');
+
+                                // Perbaikan UUID di sini juga krusial agar tidak NULL (sesuai diskusi sebelumnya)
+                                $trip_uuid_safe = htmlspecialchars($trip['uuid'] ?? ''); 
+                                
+                                // Jika dapat diedit, tampilkan link aktif
+                                if ($can_edit):
+                            ?>
+                                <a href="/dashboard?p=trip_edit&id=<?php echo $trip_uuid_safe; ?>" class="btn btn-sm btn-outline-primary flex-fill me-2">
+                                    <i class="bi bi-pencil me-1"></i> Edit Detail
+                                </a>
+                            <?php else: ?>
+                                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill me-2" disabled 
+                                        title="Trip telah disetujui Admin. Hubungi Admin untuk melakukan perubahan data.">
+                                    <i class="bi bi-lock me-1"></i> Disetujui (Tidak Dapat Diedit)
+                                </button>
+                            <?php endif; ?>
+                            
                             <button 
                                 type="button" 
                                 class="btn btn-sm btn-outline-danger" 
@@ -237,7 +263,7 @@ function format_rupiah($angka) {
                                 data-bs-toggle="modal" 
                                 data-bs-target="#deleteTripModal"
                                 data-trip-id="<?php echo $trip['id']; ?>"           
-                                data-trip-title="<?php echo htmlspecialchars($trip['title']); ?>" 
+                                data-trip-title="<?php echo htmlspecialchars($trip['title'] ?? ''); ?>" 
                             >
                                 <i class="bi bi-archive-fill"></i>
                             </button>

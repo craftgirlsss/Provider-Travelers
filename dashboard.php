@@ -1,11 +1,16 @@
 <?php
-// File: dashboard.php (Root Folder)
+if (session_status() === PHP_SESSION_NONE) session_start();
+// ob_start(); // Hapus atau gabungkan, karena sudah ada session_start() di awal
 session_start();
 require_once __DIR__ . '/config/db_config.php'; 
+// ==============================================================================
+// INTEGRASI HELPER VERIFIKASI
+// File ini harus ada di utils/verification_helper.php
+require_once __DIR__ . '/utils/check_provider_verification.php'; 
+// ==============================================================================
 
 // Inisialisasi variabel otorisasi & data provider
 $user_uuid_from_session = $_SESSION['user_uuid'] ?? null;
-// ... (Kode otorisasi dan pengambilan data provider tetap sama) ...
 $user_role_from_session = $_SESSION['user_role'] ?? null;
 $user_id_from_session = null; 
 $actual_provider_id = null; 
@@ -18,10 +23,11 @@ $provider_data = [
 ];
 
 
-// 1. Logic Perlindungan Halaman & Otorisasi
+// 1. Logic Perlindungan Halaman & Otorisasi (Tidak Berubah)
 if (!$user_uuid_from_session || $user_role_from_session !== 'provider') {
     $_SESSION['message'] = "Anda harus login sebagai Provider untuk mengakses Dashboard.";
     $_SESSION['message_type'] = "danger";
+    // Menggunakan header("Location: /login") setelah session_destroy() sudah benar untuk keamanan
     session_unset();
     session_destroy();
     session_start();
@@ -29,7 +35,7 @@ if (!$user_uuid_from_session || $user_role_from_session !== 'provider') {
     exit();
 }
 
-// --- Ambil ID Integer (id), Provider ID, dan Data Lengkap ---
+// --- Ambil ID Integer (id), Provider ID, dan Data Lengkap (Tidak Berubah) ---
 try {
     // A. Ambil Data User (ID & Email)
     $stmt_user = $conn->prepare("SELECT u.id, u.email, p.id AS provider_id, p.company_name, p.company_logo_path
@@ -44,20 +50,16 @@ try {
         $data = $result_user->fetch_assoc();
         
         $user_id_from_session = $data['id'];
-        $actual_provider_id = $data['provider_id'];
+        $actual_provider_id = $data['provider_id']; // ID dari tabel providers
 
         // Isi data provider
         $provider_data['name'] = htmlspecialchars($data['company_name']);
         $provider_data['email'] = htmlspecialchars($data['email']);
         
-        // Cek dan gunakan logo jika ada
         if (!empty($data['company_logo_path']) && file_exists($data['company_logo_path'])) {
-            // Asumsi logo_path adalah path relatif yang bisa diakses di browser
             $provider_data['logo_path'] = htmlspecialchars($data['company_logo_path']);
         } else {
-             // Gunakan logo default
              $provider_data['logo_path'] = 'assets/default_logo.png'; 
-             // Catatan: Pastikan Anda memiliki file ini atau ganti dengan logo default yang valid.
         }
     }
     $stmt_user->close();
@@ -82,12 +84,12 @@ if (!$user_id_from_session || !$actual_provider_id) {
 // ==========================================================
 // Simpan ID yang sudah terverifikasi dan data utama ke sesi
 $_SESSION['user_id'] = $user_id_from_session; 
-$_SESSION['actual_provider_id'] = $actual_provider_id;
-$_SESSION['provider_name'] = $provider_data['name']; // Simpan nama provider
-$_SESSION['user_email'] = $provider_data['email']; // Update email di sesi
+$_SESSION['actual_provider_id'] = $actual_provider_id; // ID Integer dari tabel providers
+$_SESSION['provider_name'] = $provider_data['name'];
+$_SESSION['user_email'] = $provider_data['email'];
 // ==========================================================
 
-// 2. LOGIC PENGAMBILAN NOTIFIKASI AKTIF (Sama seperti sebelumnya)
+// 2. LOGIC PENGAMBILAN NOTIFIKASI AKTIF (Tidak Berubah)
 $pending_notifications = [];
 try {
     $stmt_notif = $conn->prepare("
@@ -112,11 +114,10 @@ try {
 // 3. Tentukan Konten yang Akan Dimuat
 $page = $_GET['p'] ?? 'summary'; 
 
+// Penambahan 'tour_guides' dan 'vehicles'
 $allowed_pages = [
-    // --- PENAMBAHAN 'REPORTS' DI SINI ---
     'reports' => 'dashboard/reports.php', 
     'activity_log' => 'dashboard/activity_log.php',
-    // -----------------------------------
     'orders' => 'dashboard/order_list.php',
     'booking_detail' => 'dashboard/booking_detail.php', 
     'booking_chat' => 'dashboard/booking_chat.php',
@@ -136,16 +137,23 @@ $allowed_pages = [
     'voucher_edit' => 'dashboard/voucher_edit.php',
     'profile' => 'dashboard/profile_settings.php',  
     'provider_tickets' => 'dashboard/provider_tickets.php', 
+    'tour_guide_create' => 'dashboard/tour_guide_create.php',
     'donation' => 'donation.php', 
+    // ==========================================================
+    // PENAMBAHAN TAB BARU
+    'tour_guides' => 'dashboard/tour_guide_list.php', 
+    'vehicles' => 'dashboard/vehicle_list.php', 
+    'vehicle_create' => 'dashboard/vehicle_create.php', // Tambahkan ini
+    'vehicle_edit' => 'dashboard/vehicle_edit.php', // Tambahkan ini
+    // ==========================================================
 ];
 
-// Perubahan di sini untuk menangani file donation.php yang berada di pages/donation.php
+// Logika penentuan content_path (Tidak Berubah)
 if ($page === 'donation') {
     $content_path = 'pages/donation.php';
 } else {
     $content_path = 'pages/' . ($allowed_pages[$page] ?? $allowed_pages['summary']);
 }
-
 
 if (!file_exists(__DIR__ . '/' . $content_path)) { 
     $content_path = 'pages/' . $allowed_pages['summary'];
@@ -162,12 +170,12 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
-        /* Modernized Styling */
+        /* Modernized Styling (Tidak Berubah) */
         body { background-color: #f8f9fa; }
         .sidebar {
-            width: 280px; /* Lebih lebar */
+            width: 280px; 
             min-height: 100vh;
-            background-color: #212529; /* Lebih gelap dari dark, atau bisa pakai warna brand */
+            background-color: #212529;
             box-shadow: 2px 0 5px rgba(0,0,0,0.1);
         }
         .sidebar .nav-link {
@@ -176,7 +184,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
         }
         .sidebar .nav-link.active, .sidebar .nav-link:hover {
             color: #fff;
-            background-color: #0d6efd; /* Primary color */
+            background-color: #0d6efd; 
             border-radius: 5px;
         }
         .sidebar-header {
@@ -222,6 +230,10 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                             <i class="bi bi-graph-up me-2"></i> Laporan Keuangan
                         </a>
                     </li>
+
+                    <li class="nav-item mt-3 pt-3 border-top border-secondary">
+                        <span class="text-uppercase text-muted small fw-bold ms-3">Layanan Trip</span>
+                    </li>
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($page == 'trips' || $page == 'trip_create' || $page == 'trip_edit' ? 'active' : ''); ?>" href="/dashboard?p=trips">
                             <i class="bi bi-compass me-2"></i> Trip Aktif
@@ -243,11 +255,26 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                     </li>
 
                     <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'tour_guides' ? 'active' : ''); ?>" href="/dashboard?p=tour_guides">
+                            <i class="bi bi-person-badge-fill me-2"></i>
+                            Kelola Pemandu
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'vehicles' ? 'active' : ''); ?>" href="/dashboard?p=vehicles">
+                            <i class="bi bi-truck-flatbed me-2"></i>
+                            Kelola Kendaraan
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link <?php echo ($page == 'trip_archive' ? 'active' : ''); ?>" href="/dashboard?p=trip_archive">
                             <i class="bi bi-archive me-2"></i> Riwayat Trip & Arsip
                         </a>
                     </li>
 
+                    <li class="nav-item mt-3 pt-3 border-top border-secondary">
+                        <span class="text-uppercase text-muted small fw-bold ms-3">Transaksi & Operasional</span>
+                    </li>
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($page == 'orders' || $page == 'booking_detail' ? 'active' : ''); ?>" href="/dashboard?p=orders">
                             <i class="bi bi-box-seam me-2"></i> Pemesanan
@@ -260,6 +287,9 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                         </a>
                     </li>
                     
+                    <li class="nav-item mt-3 pt-3 border-top border-secondary">
+                        <span class="text-uppercase text-muted small fw-bold ms-3">Akun & Sistem</span>
+                    </li>
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($page == 'provider_tickets' ? 'active' : ''); ?>" href="/dashboard?p=provider_tickets">
                             <i class="bi bi-chat-left-text me-2"></i> Dukungan & Chat
@@ -299,12 +329,12 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                 <li class="breadcrumb-item active" aria-current="page"><?php 
                     $breadcrumb_name = ucwords(str_replace('_', ' ', $page));
                     
-                    // --- PENAMBAHAN BREADCRUMB DI SINI ---
+                    // Breadcrumb logic
                     if ($page === 'reports') $breadcrumb_name = 'Laporan Keuangan';
                     if ($page === 'activity_log') $breadcrumb_name = 'Riwayat Aktivitas';
-                    // ------------------------------------
-
                     if ($page === 'trips') $breadcrumb_name = 'Trip Aktif';
+                    if ($page === 'tour_guides') $breadcrumb_name = 'Kelola Pemandu';
+                    if ($page === 'vehicles') $breadcrumb_name = 'Kelola Kendaraan';
                     if ($page === 'trip_archive') $breadcrumb_name = 'Riwayat Trip & Arsip';
                     if ($page === 'summary') $breadcrumb_name = 'Ringkasan';
                     if ($page === 'provider_tickets') $breadcrumb_name = 'Dukungan & Chat'; 
@@ -321,7 +351,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
             </nav>
             
             <?php 
-            // 4. Tampilkan Pesan Sesi Umum
+            // 4. Tampilkan Pesan Sesi Umum (Tidak Berubah)
             if (isset($_SESSION['dashboard_message'])): ?>
                 <div class="alert alert-<?php echo $_SESSION['dashboard_message_type']; ?> alert-dismissible fade show" role="alert">
                     <?php echo htmlspecialchars($_SESSION['dashboard_message']); ?>
@@ -384,3 +414,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
     </script>
 </body>
 </html>
+
+<?php
+// ob_end_flush(); // Hapus karena session_start() di awal sudah ditambahkan ob_start() jika diperlukan.
+?>

@@ -47,7 +47,8 @@ if (!$error) {
             id, entity_type, company_name, owner_name, business_license_path, 
             ktp_path, company_logo_path, address, rt, rw, phone_number, postal_code, 
             province, city, district, village, verification_status, verification_note,
-            bank_name, bank_account_number, bank_account_name 
+            bank_name, bank_account_number, bank_account_name,
+            is_charter_available
         FROM providers WHERE user_id = ?");
         
         $stmt_provider->bind_param("i", $user_id_from_session); // ID integer
@@ -121,6 +122,7 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
             <?php echo get_verification_badge($verification_status); ?>
         </div>
         
+        
         <?php if ($verification_status === 'rejected' && !empty($verification_note)): ?>
             <div class="alert alert-danger p-2 m-0">
                 <strong>Catatan Admin:</strong> <?php echo $verification_note; ?>
@@ -152,6 +154,30 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
         <?php endif; ?>
     </div>
 </div>
+
+<div class="card mb-4 shadow-sm">
+    <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-1">Layanan Transportasi Khusus (Charter/Sewa)</h5>
+            <p class="mb-0 text-muted">Aktifkan jika Anda menerima permintaan sewa kendaraan selain dari paket trip reguler.</p>
+        </div>
+        
+        <div class="form-check form-switch ms-3">
+            <input class="form-check-input" type="checkbox" role="switch" id="charterStatusSwitch"
+                   name="charter_status_switch" value="1"
+                   <?php echo ($provider_data['is_charter_available'] ?? 0) == 1 ? 'checked' : ''; ?>
+                   onchange="updateCharterStatus(this.checked)">
+            <label class="form-check-label" for="charterStatusSwitch">Aktifkan Layanan</label>
+        </div>
+    </div>
+</div>
+
+<?php if (($provider_data['is_charter_available'] ?? 0) == 1): ?>
+    <div class="alert alert-info alert-dismissible fade show" role="alert">
+        Layanan Charter Anda aktif. Jangan lupa <a href="/dashboard?page=charter_fleet" class="alert-link fw-bold">kelola armada sewa Anda</a> agar client bisa melihat ketersediaan.
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+<?php endif; ?>
 
 <form action="/process/profile_process" method="POST" enctype="multipart/form-data">
     <input type="hidden" name="action" value="update_profile_data">
@@ -362,4 +388,35 @@ document.addEventListener('DOMContentLoaded', function() {
       return new bootstrap.Tooltip(tooltipTriggerEl)
     })
 });
+
+    // FUNGSI BARU UNTUK UPDATE STATUS CHARTER VIA AJAX
+    function updateCharterStatus(isChecked) {
+        const status = isChecked ? 1 : 0;
+        
+        // Kirim permintaan AJAX
+        fetch('/process/profile_process', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'action=update_charter_status&is_charter_available=' + status
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Beri feedback visual (misalnya, reload atau notifikasi)
+                alert('Status Layanan Charter berhasil diperbarui.');
+                window.location.reload(); // Reload untuk menampilkan alert info baru
+            } else {
+                alert('Gagal memperbarui status: ' + data.message);
+                // Kembalikan switch ke posisi semula jika gagal
+                document.getElementById('charterStatusSwitch').checked = !isChecked; 
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Terjadi kesalahan jaringan.');
+            document.getElementById('charterStatusSwitch').checked = !isChecked;
+        });
+    }
 </script>

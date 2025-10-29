@@ -2,7 +2,13 @@
 // File: pages/dashboard/departure_edit.php
 // Halaman untuk mengedit detail jadwal keberangkatan tertentu.
 
-global $conn;
+global $conn, $user_id_from_session, $actual_provider_id; 
+
+// 1. Sertakan file helper
+require_once __DIR__ . '/../../utils/check_provider_verification.php';
+
+// 2. Jalankan Fungsi Validasi
+check_provider_verification($conn, $actual_provider_id, "Buat Jadwal Keberangkatan");
 
 // 1. Ambil ID dari URL
 $schedule_id = $_GET['id'] ?? 0;
