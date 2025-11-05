@@ -29,6 +29,7 @@ if (isset($_SESSION['user_id']) && $_SESSION['user_role'] === 'provider') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login Provider - Open Trip</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         .login-container {
             /* Mengatur ulang style card */
@@ -78,7 +79,12 @@ if (isset($_SESSION['user_id']) && $_SESSION['user_role'] === 'provider') {
             
             <div class="mb-4">
                 <label for="password" class="form-label">Password</label>
-                <input type="password" class="form-control" id="password" name="password" required placeholder="Masukkan password Anda">
+                <div class="input-group">
+                    <input type="password" class="form-control" id="password" name="password" required placeholder="Masukkan password Anda">
+                    <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                        <i class="bi bi-eye-slash" id="toggleIcon"></i>
+                    </button>
+                </div>
             </div>
             
             <button type="submit" class="btn btn-dark w-100 py-2 fw-bold">Login</button>
@@ -93,5 +99,27 @@ if (isset($_SESSION['user_id']) && $_SESSION['user_role'] === 'provider') {
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const togglePassword = document.getElementById('togglePassword');
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+
+            togglePassword.addEventListener('click', function (e) {
+                // Toggle tipe input dari password menjadi text, atau sebaliknya
+                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordInput.setAttribute('type', type);
+                
+                // Toggle ikon (mata terbuka / mata tertutup)
+                if (type === 'text') {
+                    toggleIcon.classList.remove('bi-eye-slash');
+                    toggleIcon.classList.add('bi-eye');
+                } else {
+                    toggleIcon.classList.remove('bi-eye');
+                    toggleIcon.classList.add('bi-eye-slash');
+                }
+            });
+        });
+    </script>
 </body>
 </html>

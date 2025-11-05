@@ -72,6 +72,11 @@ switch ($path) {
     case 'process/booking_process_client': // <--- BARU: Untuk upload bukti transfer oleh Client (akan dibuat nanti)
         require __DIR__ . '/process/booking_process_client.php';
         break;
+
+    // Tambahkan Rute Ini:
+    case 'process/charter_process':
+        require __DIR__ . '/process/charter_process.php';
+        break;
     
     // --- Default / Index ---
     case '':

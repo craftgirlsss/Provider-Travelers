@@ -22,6 +22,7 @@ if (isset($_SESSION['message'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Daftar Akun Provider - Open Trip</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet"> 
     <style>
         /* Menggunakan flexbox untuk centring yang konsisten */
         body {
@@ -89,14 +90,23 @@ if (isset($_SESSION['message'])) {
             
             <div class="mb-3">
                 <label for="password" class="form-label">Password</label>
-                <input type="password" class="form-control" id="password" name="password" required minlength="8" placeholder="Minimal 8 karakter">
+                <div class="input-group">
+                    <input type="password" class="form-control" id="password" name="password" required minlength="8" placeholder="Minimal 8 karakter">
+                    <button class="btn btn-outline-secondary" type="button" data-target="password">
+                        <i class="bi bi-eye-slash"></i>
+                    </button>
+                </div>
             </div>
             
             <div class="mb-4">
                 <label for="password_confirm" class="form-label">Konfirmasi Password</label>
-                <input type="password" class="form-control" id="password_confirm" name="password_confirm" required>
+                <div class="input-group">
+                    <input type="password" class="form-control" id="password_confirm" name="password_confirm" required>
+                    <button class="btn btn-outline-secondary" type="button" data-target="password_confirm">
+                        <i class="bi bi-eye-slash"></i>
+                    </button>
+                </div>
             </div>
-            
             <div class="form-check mb-4">
                 <input class="form-check-input" type="checkbox" value="1" id="terms_agree" name="terms_agree" required>
                 <label class="form-check-label" for="terms_agree">
@@ -139,5 +149,34 @@ if (isset($_SESSION['message'])) {
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-</body>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Ambil semua tombol toggle (yang memiliki atribut data-target)
+            const toggleButtons = document.querySelectorAll('button[data-target]');
+
+            toggleButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    // Ambil ID input target dari atribut data-target pada tombol
+                    const targetId = this.getAttribute('data-target');
+                    const passwordInput = document.getElementById(targetId);
+                    const toggleIcon = this.querySelector('i');
+
+                    // Toggle tipe input
+                    const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                    passwordInput.setAttribute('type', type);
+                    
+                    // Toggle ikon
+                    if (type === 'text') {
+                        toggleIcon.classList.remove('bi-eye-slash');
+                        toggleIcon.classList.add('bi-eye');
+                    } else {
+                        toggleIcon.classList.remove('bi-eye');
+                        toggleIcon.classList.add('bi-eye-slash');
+                    }
+                });
+            });
+        });
+    </script>
+    </body>
 </html>

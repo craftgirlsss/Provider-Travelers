@@ -69,6 +69,26 @@ if (!$error) {
     }
 }
 
+// 2.5 Payment Method
+$payment_methods = [];
+if (!$error) {
+    try {
+        $stmt_payment = $conn->prepare("SELECT id, method_type, account_name, bank_name, account_number, qris_image_url, is_main, is_active 
+            FROM provider_payment_methods 
+            WHERE provider_id = ? 
+            ORDER BY is_main DESC, id DESC");
+        $stmt_payment->bind_param("i", $actual_provider_id);
+        $stmt_payment->execute();
+        $result_payment = $stmt_payment->get_result();
+        while ($row = $result_payment->fetch_assoc()) {
+            $payment_methods[] = $row;
+        }
+        $stmt_payment->close();
+    } catch (Exception $e) {
+        $error = "Gagal memuat metode pembayaran: " . $e->getMessage();
+    }
+}
+
 // 3. Ambil Daftar Bank
 if (!$error) {
     try {
@@ -261,12 +281,13 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
 
         </div>
     </div>
-    
+
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-secondary text-white">
-            <i class="bi bi-bank me-2"></i> Informasi Rekening Bank
+            <i class="bi bi-bank me-2"></i> Rekening Bank Internal (Pencairan Dana)
         </div>
         <div class="card-body">
+            <p class="text-muted">Informasi ini digunakan untuk keperluan internal dan pencairan dana Anda. Ini <b>tidak</b> ditampilkan langsung ke pelanggan.</p>
             <?php if (!empty($error_bank)): ?>
                 <div class="alert alert-warning">
                     <?php echo htmlspecialchars($error_bank); ?>
@@ -284,7 +305,6 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
                         </option>
                     <?php endforeach; ?>
                 </select>
-                <small class="text-muted">Opsional, tapi wajib diisi jika ingin menerima pembayaran.</small>
             </div>
             
             <div class="mb-3">
@@ -301,6 +321,70 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
                     placeholder="Masukkan Nama Pemilik Rekening">
                 <small class="form-text text-muted">Nama ini harus sesuai dengan nama di rekening bank.</small>
             </div>
+        </div>
+    </div>
+    
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-wallet2 me-2"></i> Metode Pembayaran untuk Pelanggan</span>
+            <button type="button" class="btn btn-sm btn-light" data-bs-toggle="modal" data-bs-target="#addPaymentMethodModal">
+                <i class="bi bi-plus-circle me-1"></i> Tambah Metode
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <?php if (empty($payment_methods)): ?>
+                <div class="alert alert-info m-4 text-center">
+                    Anda belum menambahkan metode pembayaran yang akan ditampilkan kepada pelanggan.
+                </div>
+            <?php else: ?>
+                <div class="list-group list-group-flush">
+                    <?php foreach ($payment_methods as $method): ?>
+                        <div class="list-group-item">
+                            <div class="d-flex w-100 justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1 fw-bold text-dark">
+                                        <?php 
+                                            $type_display = strtoupper(str_replace('_', ' ', $method['method_type']));
+                                            echo htmlspecialchars($type_display);
+                                        ?>
+                                        <?php if ($method['is_main'] == 1): ?>
+                                            <span class="badge bg-primary ms-2">Utama</span>
+                                        <?php endif; ?>
+                                    </h6>
+                                    <p class="mb-1 small">
+                                        <?php echo htmlspecialchars($method['bank_name'] ?? 'Penyedia Layanan'); ?> - 
+                                        <b><?php echo htmlspecialchars($method['account_number']); ?></b>
+                                    </p>
+                                    <small class="text-muted">A.N: <?php echo htmlspecialchars($method['account_name']); ?></small>
+                                    
+                                    <div class="mt-1">
+                                        <?php if ($method['is_active'] == 1): ?>
+                                            <span class="badge bg-success"><i class="bi bi-check-circle-fill"></i> Aktif</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-warning text-dark"><i class="bi bi-x-circle-fill"></i> Nonaktif</span>
+                                        <?php endif; ?>
+                                    </div>
+                                    
+                                    <?php if (!empty($method['qris_image_url'])): ?>
+                                        <div class="mt-2">
+                                            <small class="text-info d-block">QRIS tersedia:</small>
+                                            <img src="/<?php echo htmlspecialchars($method['qris_image_url']); ?>" alt="QRIS" style="max-height: 50px;">
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="btn-group">
+                                    <button type="button" class="btn btn-sm btn-info edit-method-btn" data-id="<?php echo $method['id']; ?>" title="Edit">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-danger delete-method-btn" data-id="<?php echo $method['id']; ?>" title="Hapus">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
     
@@ -354,46 +438,142 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
     <button type="submit" class="btn btn-success btn-lg mb-5"><i class="bi bi-save me-2"></i> Simpan Perubahan Profil</button>
 </form>
 
+<div class="modal fade" id="addPaymentMethodModal" tabindex="-1" aria-labelledby="addPaymentMethodModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form action="/process/payment_method_process.php" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="add_method">
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title" id="addPaymentMethodModalLabel">Tambah Metode Pembayaran Baru</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+            
+            <div class="mb-3">
+                <label for="method_type_modal" class="form-label fw-bold">Tipe Pembayaran (*)</label>
+                <select class="form-select" id="method_type_modal" name="method_type" required>
+                    <option value="">-- Pilih Tipe --</option>
+                    <option value="BANK_TRANSFER">Transfer Bank</option>
+                    <option value="E_WALLET">E-Wallet (Dana, GoPay, OVO, dll)</option>
+                    <option value="QRIS">QRIS (Code Scan)</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="bank_name_modal" class="form-label">Nama Bank/Penyedia Layanan (Contoh: BCA, GoPay)</label>
+                <input type="text" class="form-control" id="bank_name_modal" name="bank_name" required>
+            </div>
+
+            <div class="mb-3">
+                <label for="account_name_modal" class="form-label fw-bold">Nama Pemilik Rekening/Akun (*)</label>
+                <input type="text" class="form-control" id="account_name_modal" name="account_name" required>
+            </div>
+            
+            <div class="mb-3">
+                <label for="account_number_modal" class="form-label fw-bold">No. Rekening/No. Telp/ID Pembayaran (*)</label>
+                <input type="text" class="form-control" id="account_number_modal" name="account_number" required>
+            </div>
+            
+            <div id="qris_upload_section" class="mb-3" style="display:none;">
+                <label for="qris_image_file" class="form-label fw-bold text-danger">Upload Gambar QRIS (JPG/PNG)</label>
+                <input type="file" class="form-control" id="qris_image_file" name="qris_image_file" accept=".jpg,.jpeg,.png">
+                <small class="text-muted">Wajib diisi jika tipe pembayaran adalah QRIS.</small>
+            </div>
+
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" value="1" id="is_main" name="is_main">
+                <label class="form-check-label" for="is_main">
+                    Jadikan sebagai Metode Pembayaran Utama
+                </label>
+            </div>
+
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="is_active" name="is_active" value="1" checked>
+                <label class="form-check-label" for="is_active">Aktifkan Metode Pembayaran ini</label>
+            </div>
+            
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="submit" class="btn btn-success">Simpan Metode</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const entityTypeSelect = document.getElementById('entity_type');
     const companyFieldsDiv = document.getElementById('company_fields');
     const businessLicenseFile = document.getElementById('business_license_file');
-
     function toggleCompanyFields() {
         const isCompany = entityTypeSelect.value === 'company';
-        
         companyFieldsDiv.style.display = isCompany ? 'block' : 'none';
-        
         if (isCompany) {
-            // Cek apakah sudah ada lisensi lama
             const hasExistingLicense = "<?php echo (int)!empty($provider_data['business_license_path']); ?>"; 
-            
-            // Jika belum ada lisensi dan tidak ada file baru di-upload, maka wajib.
-            // Tapi karena file input bisa di-skip, kita biarkan logic required di server side (profile_process.php)
-            // Cukup atur di sini untuk visualisasi (atau tinggalkan kosong jika Anda mengandalkan server)
             businessLicenseFile.required = hasExistingLicense === '1' ? false : true; 
-
         } else {
             businessLicenseFile.required = false;
         }
     }
-
     toggleCompanyFields();
     entityTypeSelect.addEventListener('change', toggleCompanyFields);
-
-    // Bootstrap Tooltip initialization (opsional, jika Anda menggunakan Bootstrap 5)
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
       return new bootstrap.Tooltip(tooltipTriggerEl)
     })
-});
 
-    // FUNGSI BARU UNTUK UPDATE STATUS CHARTER VIA AJAX
+    const methodTypeModal = document.getElementById('method_type_modal');
+    const qrisSection = document.getElementById('qris_upload_section');
+    const qrisInput = document.getElementById('qris_image_file');
+
+    function toggleQrisField() {
+        if (methodTypeModal.value === 'QRIS') {
+            qrisSection.style.display = 'block';
+            qrisInput.required = true; // Wajib jika QRIS
+        } else {
+            qrisSection.style.display = 'none';
+            qrisInput.required = false;
+        }
+    }
+
+    // Panggil saat load dan saat berubah
+    toggleQrisField(); 
+    methodTypeModal.addEventListener('change', toggleQrisField);
+
+    // Tambahkan logika untuk tombol edit/delete di daftar metode pembayaran
+    document.querySelectorAll('.delete-method-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const methodId = this.getAttribute('data-id');
+            if (confirm('Anda yakin ingin menghapus metode pembayaran ini?')) {
+                // Kirim permintaan DELETE ke payment_method_process.php
+                fetch('/process/payment_method_process.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'action=delete_method&method_id=' + methodId
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Metode pembayaran berhasil dihapus.');
+                        window.location.reload();
+                    } else {
+                        alert('Gagal menghapus: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Terjadi kesalahan jaringan saat menghapus.');
+                });
+            }
+        });
+    });
+});
     function updateCharterStatus(isChecked) {
         const status = isChecked ? 1 : 0;
-        
-        // Kirim permintaan AJAX
         fetch('/process/profile_process', {
             method: 'POST',
             headers: {
@@ -404,12 +584,10 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Beri feedback visual (misalnya, reload atau notifikasi)
                 alert('Status Layanan Charter berhasil diperbarui.');
                 window.location.reload(); // Reload untuk menampilkan alert info baru
             } else {
                 alert('Gagal memperbarui status: ' + data.message);
-                // Kembalikan switch ke posisi semula jika gagal
                 document.getElementById('charterStatusSwitch').checked = !isChecked; 
             }
         })

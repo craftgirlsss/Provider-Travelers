@@ -1,11 +1,9 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) session_start();
-// ob_start(); // Hapus atau gabungkan, karena sudah ada session_start() di awal
-session_start();
+
 require_once __DIR__ . '/config/db_config.php'; 
 // ==============================================================================
 // INTEGRASI HELPER VERIFIKASI
-// File ini harus ada di utils/verification_helper.php
 require_once __DIR__ . '/utils/check_provider_verification.php'; 
 // ==============================================================================
 
@@ -14,6 +12,7 @@ $user_uuid_from_session = $_SESSION['user_uuid'] ?? null;
 $user_role_from_session = $_SESSION['user_role'] ?? null;
 $user_id_from_session = null; 
 $actual_provider_id = null; 
+$is_charter_available = 0; // Default status charter
 
 // --- Data Provider Lengkap ---
 $provider_data = [
@@ -23,11 +22,10 @@ $provider_data = [
 ];
 
 
-// 1. Logic Perlindungan Halaman & Otorisasi (Tidak Berubah)
+// 1. Logic Perlindungan Halaman & Otorisasi
 if (!$user_uuid_from_session || $user_role_from_session !== 'provider') {
     $_SESSION['message'] = "Anda harus login sebagai Provider untuk mengakses Dashboard.";
     $_SESSION['message_type'] = "danger";
-    // Menggunakan header("Location: /login") setelah session_destroy() sudah benar untuk keamanan
     session_unset();
     session_destroy();
     session_start();
@@ -35,10 +33,10 @@ if (!$user_uuid_from_session || $user_role_from_session !== 'provider') {
     exit();
 }
 
-// --- Ambil ID Integer (id), Provider ID, dan Data Lengkap (Tidak Berubah) ---
+// --- ✅ Ambil ID Integer (id), Provider ID, Data Lengkap, dan Status Charter ---
 try {
-    // A. Ambil Data User (ID & Email)
-    $stmt_user = $conn->prepare("SELECT u.id, u.email, p.id AS provider_id, p.company_name, p.company_logo_path
+    // Menambahkan p.is_charter_available ke SELECT
+    $stmt_user = $conn->prepare("SELECT u.id, u.email, p.id AS provider_id, p.company_name, p.company_logo_path, p.is_charter_available
                                  FROM users u
                                  JOIN providers p ON u.id = p.user_id
                                  WHERE u.uuid = ?");
@@ -51,7 +49,8 @@ try {
         
         $user_id_from_session = $data['id'];
         $actual_provider_id = $data['provider_id']; // ID dari tabel providers
-
+        $is_charter_available = (int)$data['is_charter_available']; // ✅ Data Penting
+        
         // Isi data provider
         $provider_data['name'] = htmlspecialchars($data['company_name']);
         $provider_data['email'] = htmlspecialchars($data['email']);
@@ -114,7 +113,7 @@ try {
 // 3. Tentukan Konten yang Akan Dimuat
 $page = $_GET['p'] ?? 'summary'; 
 
-// Penambahan 'tour_guides' dan 'vehicles'
+// ✅ PENAMBAHAN 'charter_fleet'
 $allowed_pages = [
     'reports' => 'dashboard/reports.php', 
     'activity_log' => 'dashboard/activity_log.php',
@@ -139,20 +138,33 @@ $allowed_pages = [
     'provider_tickets' => 'dashboard/provider_tickets.php', 
     'tour_guide_create' => 'dashboard/tour_guide_create.php',
     'donation' => 'donation.php', 
-    // ==========================================================
-    // PENAMBAHAN TAB BARU
     'tour_guides' => 'dashboard/tour_guide_list.php', 
     'vehicles' => 'dashboard/vehicle_list.php', 
-    'vehicle_create' => 'dashboard/vehicle_create.php', // Tambahkan ini
-    'vehicle_edit' => 'dashboard/vehicle_edit.php', // Tambahkan ini
-    // ==========================================================
+    'vehicle_create' => 'dashboard/vehicle_create.php',
+    'vehicle_edit' => 'dashboard/vehicle_edit.php',
+    // ✅ Tambahkan Page Charter Fleet
+    'charter_fleet' => 'dashboard/charter_fleet_management.php',
 ];
 
-// Logika penentuan content_path (Tidak Berubah)
+// Logika penentuan content_path
+$content_path = null;
+
 if ($page === 'donation') {
     $content_path = 'pages/donation.php';
+} elseif (isset($allowed_pages[$page])) {
+    $content_path = 'pages/' . $allowed_pages[$page];
 } else {
-    $content_path = 'pages/' . ($allowed_pages[$page] ?? $allowed_pages['summary']);
+    $content_path = 'pages/' . $allowed_pages['summary'];
+}
+
+// ⚠️ Logika otorisasi khusus untuk charter_fleet
+if ($page === 'charter_fleet' && $is_charter_available == 0) {
+    // Jika provider mencoba mengakses charter_fleet tapi layanannya non-aktif,
+    // alihkan ke profil dan berikan pesan.
+    $_SESSION['dashboard_message'] = "Layanan Kelola Armada Sewa hanya tersedia jika layanan Charter/Sewa Anda sudah diaktifkan di Profil Perusahaan.";
+    $_SESSION['dashboard_message_type'] = "warning";
+    header("Location: /dashboard?p=profile");
+    exit();
 }
 
 if (!file_exists(__DIR__ . '/' . $content_path)) { 
@@ -240,6 +252,13 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                         </a>
                     </li>
 
+                    <?php if ($is_charter_available == 1): ?>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($page == 'charter_fleet' ? 'active' : ''); ?>" href="/dashboard?p=charter_fleet">
+                            <i class="bi bi-bus-front-fill me-2"></i> Kelola Armada Sewa
+                        </a>
+                    </li>
+                    <?php endif; ?>
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($page === 'departures' || $page === 'departure_create') ? 'active' : ''; ?>" href="/dashboard?p=departures">
                             <i class="bi bi-clock-history me-2"></i>
@@ -263,7 +282,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($page == 'vehicles' ? 'active' : ''); ?>" href="/dashboard?p=vehicles">
                             <i class="bi bi-truck-flatbed me-2"></i>
-                            Kelola Kendaraan
+                            Kelola Kendaraan Trip
                         </a>
                     </li>
                     <li class="nav-item">
@@ -334,7 +353,8 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
                     if ($page === 'activity_log') $breadcrumb_name = 'Riwayat Aktivitas';
                     if ($page === 'trips') $breadcrumb_name = 'Trip Aktif';
                     if ($page === 'tour_guides') $breadcrumb_name = 'Kelola Pemandu';
-                    if ($page === 'vehicles') $breadcrumb_name = 'Kelola Kendaraan';
+                    if ($page === 'vehicles') $breadcrumb_name = 'Kelola Kendaraan Trip';
+                    if ($page === 'charter_fleet') $breadcrumb_name = 'Kelola Armada Sewa'; // Breadcrumb baru
                     if ($page === 'trip_archive') $breadcrumb_name = 'Riwayat Trip & Arsip';
                     if ($page === 'summary') $breadcrumb_name = 'Ringkasan';
                     if ($page === 'provider_tickets') $breadcrumb_name = 'Dukungan & Chat'; 
@@ -351,7 +371,7 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
             </nav>
             
             <?php 
-            // 4. Tampilkan Pesan Sesi Umum (Tidak Berubah)
+            // 4. Tampilkan Pesan Sesi Umum
             if (isset($_SESSION['dashboard_message'])): ?>
                 <div class="alert alert-<?php echo $_SESSION['dashboard_message_type']; ?> alert-dismissible fade show" role="alert">
                     <?php echo htmlspecialchars($_SESSION['dashboard_message']); ?>
@@ -386,7 +406,6 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
-    // ... (Fungsi markNotificationAsRead tetap sama) ...
     function markNotificationAsRead(notifId) {
         const alertElement = document.getElementById('notif-' + notifId);
         if (alertElement) {
@@ -414,7 +433,3 @@ if (!file_exists(__DIR__ . '/' . $content_path)) {
     </script>
 </body>
 </html>
-
-<?php
-// ob_end_flush(); // Hapus karena session_start() di awal sudah ditambahkan ob_start() jika diperlukan.
-?>
