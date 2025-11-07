@@ -1,18 +1,10 @@
 <?php
 // File: pages/dashboard/profile_settings.php
-// Di-include oleh dashboard.php
-
-// MENGHILANGKAN: $user_id_from_session = $_SESSION['user_id'];
-// MENGGUNAKAN: Variabel yang sudah tersedia dari dashboard.php
-// $user_id_from_session (int)
-// $actual_provider_id (int)
-// Jika Anda mengikuti langkah sebelumnya, variabel ini sudah ada di sini.
 
 if (!isset($user_id_from_session) || !$user_id_from_session) {
     // Fallback jika dashboard.php gagal setting ID. Seharusnya tidak terjadi.
     $error = "Error Otorisasi: ID Pengguna tidak tersedia.";
 }
-
 
 $provider_data = [];
 $user_data = [];
@@ -26,7 +18,6 @@ $verification_note = '';
 // 1. Ambil Data User (Nama, Email)
 if (!$error) {
     try {
-        // Query menggunakan $user_id_from_session yang sudah divalidasi
         $stmt_user = $conn->prepare("SELECT name, email FROM users WHERE id = ?");
         $stmt_user->bind_param("i", $user_id_from_session); // ID integer
         $stmt_user->execute();
@@ -90,8 +81,10 @@ if (!$error) {
 }
 
 // 3. Ambil Daftar Bank
+$error_bank = null;
 if (!$error) {
     try {
+        // Ambil data bank_name dari tabel bank_list
         $result_banks = $conn->query("SELECT bank_name FROM bank_list ORDER BY bank_name ASC");
         if ($result_banks) {
             while ($row = $result_banks->fetch_assoc()) {
@@ -460,10 +453,12 @@ $is_verifiable = in_array($verification_status, ['unverified', 'rejected']);
             </div>
 
             <div class="mb-3">
-                <label for="bank_name_modal" class="form-label">Nama Bank/Penyedia Layanan (Contoh: BCA, GoPay)</label>
-                <input type="text" class="form-control" id="bank_name_modal" name="bank_name" required>
+                <label for="bank_name_modal" class="form-label fw-bold">Nama Bank/Penyedia Layanan (*)</label>
+                <div id="bank_name_container">
+                    <input type="text" class="form-control" id="bank_name_modal" name="bank_name" required 
+                           placeholder="Pilih Tipe Pembayaran Dahulu">
+                </div>
             </div>
-
             <div class="mb-3">
                 <label for="account_name_modal" class="form-label fw-bold">Nama Pemilik Rekening/Akun (*)</label>
                 <input type="text" class="form-control" id="account_name_modal" name="account_name" required>
@@ -510,8 +505,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function toggleCompanyFields() {
         const isCompany = entityTypeSelect.value === 'company';
         companyFieldsDiv.style.display = isCompany ? 'block' : 'none';
+        
+        // Cek apakah file sudah ada, jika sudah ada, tidak perlu di-required
+        const hasExistingLicense = "<?php echo (int)!empty($provider_data['business_license_path']); ?>"; 
+        
         if (isCompany) {
-            const hasExistingLicense = "<?php echo (int)!empty($provider_data['business_license_path']); ?>"; 
             businessLicenseFile.required = hasExistingLicense === '1' ? false : true; 
         } else {
             businessLicenseFile.required = false;
@@ -523,25 +521,102 @@ document.addEventListener('DOMContentLoaded', function() {
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
       return new bootstrap.Tooltip(tooltipTriggerEl)
     })
-
+    
+    // =======================================================================
+    // LOGIKA DINAMIS BANK/E-WALLET/QRIS
+    // =======================================================================
     const methodTypeModal = document.getElementById('method_type_modal');
     const qrisSection = document.getElementById('qris_upload_section');
     const qrisInput = document.getElementById('qris_image_file');
+    
+    const bankNameContainer = document.getElementById('bank_name_container');
+    // Ambil daftar bank dari PHP dan encode ke JavaScript
+    const phpBankList = <?php echo json_encode($bank_list); ?>; 
+    
+    // Fungsi untuk mengubah field Nama Bank/Penyedia Layanan
+    function updateBankNameField() {
+        const selectedType = methodTypeModal.value;
+        let htmlContent = '';
+        let requiredStatus = true;
+        let placeholderText = '';
 
-    function toggleQrisField() {
-        if (methodTypeModal.value === 'QRIS') {
+        if (selectedType === 'BANK_TRANSFER') {
+            // Jika Transfer Bank: Tampilkan Dropdown Bank
+            htmlContent = `
+                <select class="form-select" id="bank_name_modal" name="bank_name" required>
+                    <option value="">-- Pilih Bank --</option>
+                    ${phpBankList.map(bank => `<option value="${bank}">${bank}</option>`).join('')}
+                </select>
+            `;
+            requiredStatus = true;
+            
+        } else if (selectedType === 'E_WALLET') {
+            // Jika E-Wallet: Tampilkan Text Field dengan placeholder E-Wallet
+            placeholderText = 'Contoh: GoPay, Dana, OVO';
+            htmlContent = `
+                <input type="text" class="form-control" id="bank_name_modal" name="bank_name" required 
+                       placeholder="${placeholderText}">
+            `;
+            requiredStatus = true;
+
+        } else if (selectedType === 'QRIS') {
+            // Jika QRIS: Tampilkan Text Field
+            placeholderText = 'Contoh: QRIS Bank BCA, QRIS Standard';
+            htmlContent = `
+                <input type="text" class="form-control" id="bank_name_modal" name="bank_name" required 
+                       placeholder="${placeholderText}">
+            `;
+            requiredStatus = true;
+        } else {
+            // Default/Pilihan Kosong
+             htmlContent = `
+                <input type="text" class="form-control" id="bank_name_modal" name="bank_name" 
+                       placeholder="Pilih Tipe Pembayaran Dahulu">
+            `;
+            requiredStatus = false;
+        }
+
+        // Terapkan perubahan ke kontainer
+        bankNameContainer.innerHTML = htmlContent;
+        
+
+        // Logika untuk menampilkan/menyembunyikan field QRIS upload
+        if (selectedType === 'QRIS') {
             qrisSection.style.display = 'block';
-            qrisInput.required = true; // Wajib jika QRIS
+            qrisInput.required = true; 
         } else {
             qrisSection.style.display = 'none';
             qrisInput.required = false;
         }
+        
+        // Memastikan field Nama Bank tetap required (kecuali saat value kosong)
+        const currentBankInput = document.getElementById('bank_name_modal');
+        if (currentBankInput) {
+             currentBankInput.required = requiredStatus;
+        }
+        
+        // Update Label/Placeholder untuk Account Number/ID
+        const accountNumberLabel = document.querySelector('label[for="account_number_modal"]');
+        if (accountNumberLabel) {
+            if (selectedType === 'BANK_TRANSFER') {
+                 accountNumberLabel.textContent = 'Nomor Rekening Bank (*)';
+            } else if (selectedType === 'E_WALLET') {
+                 accountNumberLabel.textContent = 'Nomor Telp/ID Akun E-Wallet (*)';
+            } else if (selectedType === 'QRIS') {
+                 accountNumberLabel.textContent = 'ID Merchant QRIS (Opsional)';
+            } else {
+                 accountNumberLabel.textContent = 'No. Rekening/No. Telp/ID Pembayaran (*)';
+            }
+        }
+        
     }
 
-    // Panggil saat load dan saat berubah
-    toggleQrisField(); 
-    methodTypeModal.addEventListener('change', toggleQrisField);
 
+    // Panggil saat load dan saat berubah
+    updateBankNameField(); 
+    methodTypeModal.addEventListener('change', updateBankNameField);
+    // =======================================================================
+    
     // Tambahkan logika untuk tombol edit/delete di daftar metode pembayaran
     document.querySelectorAll('.delete-method-btn').forEach(button => {
         button.addEventListener('click', function() {

@@ -1,10 +1,10 @@
 <?php
-// File: generate_invoice.php
+// File: generate_invoice.php (LOKASI: HARUS DI DALAM FOLDER PUBLIC/)
 // TUGAS: Mengambil data booking, merender HTML invoice, dan mengubahnya menjadi PDF.
 
 // 1. Inisialisasi Autoload Composer
-// Pastikan path ini benar sesuai lokasi file vendor/autoload.php Anda.
-require 'vendor/autoload.php';
+// PATH KOREKSI: Naik satu level karena file ini ada di public/
+require 'vendor/autoload.php'; 
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -12,22 +12,18 @@ use Dompdf\Options;
 // =========================================================================
 // 1. VALIDASI DAN KONEKSI DATABASE
 // =========================================================================
-
-// ASUMSI: File ini diakses langsung dan perlu inisialisasi koneksi DB.
-// Ganti dengan logic koneksi DB Anda yang sebenarnya.
-// --- START: Contoh Inisialisasi Koneksi ---
-// global $conn; // Jika Anda bisa mengakses global scope
-// Jika tidak, inisialisasi koneksi MySQLi baru:
+// ASUMSI: Ganti dengan logic koneksi DB Anda yang sebenarnya.
 $db_host = 'localhost'; // Ganti
-$db_user = 'root';      // Ganti
-$db_pass = 'password';  // Ganti
-$db_name = 'nama_database_anda'; // Ganti
+$db_user = 'sql_api_traveler';      // Ganti
+$db_pass = 'a7f136533cbbf8';  // Ganti
+$db_name = 'sql_api_traveler'; // Ganti
+$db_port = '2323';    
 
 $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
 if ($conn->connect_error) {
+    // Fatal error di baris ini jika kredensial salah
     die("Koneksi database gagal: " . $conn->connect_error);
 }
-// --- END: Contoh Inisialisasi Koneksi ---
 
 $booking_id = (int)($_GET['id'] ?? 0);
 
@@ -36,26 +32,22 @@ if ($booking_id <= 0) {
     die("Akses ditolak: ID Pemesanan tidak valid.");
 }
 
-// Data Provider (Anda harus mengambil ini dari DB berdasarkan provider_id dari booking)
-// Untuk contoh, kita gunakan data statis
-$provider_info = [
-    'name' => 'Nama Provider Perjalanan Anda',
-    'address' => 'Jl. Contoh No. 123, Kota Anda',
-    'phone' => '+62 812 345 678',
-    'email' => 'finance@yourtravel.com',
-    'logo_path' => '/assets/images/logo.png' // Pastikan path ini absolut atau relatif yang benar
-];
+$platform_name = 'VLYTRIP';
 
 try {
-    // Query untuk mengambil data lengkap (Booking, Trip, Client)
+    // Query untuk mengambil data lengkap (Booking, Trip, Client, dan Provider)
     $stmt = $conn->prepare("
         SELECT 
-            b.*, b.invoice_number, 
+            b.*, b.invoice_number, b.amount_paid, b.discount_amount, b.uuid AS booking_uuid,
             t.title AS trip_title, t.duration AS trip_duration,
-            u.name AS client_name, u.email AS client_email, u.phone AS client_phone
+            u.name AS client_name, u.email AS client_email, u.phone AS client_phone,
+            p.company_name AS provider_name,   -- KOREKSI: Menggunakan company_name
+            p.address AS provider_address,       -- KOREKSI: Menggunakan address
+            p.phone_number AS provider_phone     -- KOREKSI: Menggunakan phone_number
         FROM bookings b
         JOIN trips t ON b.trip_id = t.id
         JOIN users u ON b.user_id = u.id
+        JOIN providers p ON t.provider_id = p.id 
         WHERE b.id = ? AND b.status = 'paid'
     ");
     $stmt->bind_param("i", $booking_id);
@@ -80,9 +72,20 @@ if (empty($data['invoice_number'])) {
      die("Error: Pemesanan ini belum memiliki Nomor Invoice.");
 }
 
+// PERHITUNGAN HARGA FINAL UNTUK INVOICE
+$price_after_discount_per_person = $data['total_price'] - $data['discount_amount'];
+$actual_total_price = $data['num_of_people'] * $price_after_discount_per_person;
+
+// FORMAT UUID BOOKING (8 digit, Uppercase)
+$short_booking_id = strtoupper(substr($data['booking_uuid'], 0, 8));
+
 // =========================================================================
 // 2. GENERATE HTML INVOICE
 // =========================================================================
+
+// PATH LOGO: Relatif dari file generate_invoice.php (di root project)
+$logo_url = 'https://provider-travelers.karyadeveloperindonesia.com/assets/vly.png'; 
+// Jika menggunakan URL absolut, gunakan: $logo_url = 'https://domainanda.com/assets/vly.png';
 
 $html = '
 <!DOCTYPE html>
@@ -113,13 +116,14 @@ $html = '
                 <td colspan="2">
                     <table>
                         <tr>
-                            <td class="title">
-                                <h2>INVOICE</h2>
+                            <td class="title" style="display: flex; align-items: center;">
+                                <img src="' . $logo_url . '" style="width: 200px; margin-right: 10px;">
+                                <h1>INVOICE</h1>
                             </td>
                             <td>
                                 Invoice #: <b>' . htmlspecialchars($data['invoice_number']) . '</b><br>
-                                Diterbitkan: ' . date('d M Y', strtotime($data['paid_at'] ?? $data['created_at'])) . '<br>
-                                ID Pemesanan: #' . htmlspecialchars($data['id']) . '
+                                Diterbitkan: ' . date('d M Y', strtotime($data['payment_confirmation_at'] ?? $data['created_at'])) . '<br>
+                                ID Pemesanan: <b>' . $short_booking_id . '</b>
                             </td>
                         </tr>
                     </table>
@@ -131,13 +135,13 @@ $html = '
                     <table>
                         <tr>
                             <td>
-                                **Dari (Penyedia Jasa):**<br>
-                                <b>' . htmlspecialchars($provider_info['name']) . '</b><br>
-                                ' . htmlspecialchars($provider_info['address']) . '<br>
-                                Telp: ' . htmlspecialchars($provider_info['phone']) . '
+                                <b>Dari (Penyedia Jasa):</b><br>
+                                <b>' . htmlspecialchars($data['provider_name']) . '</b><br>
+                                ' . htmlspecialchars($data['provider_address']) . '<br>
+                                Telp: ' . htmlspecialchars($data['provider_phone']) . '
                             </td>
                             <td>
-                                **Kepada (Pelanggan):**<br>
+                                <b>Kepada (Customer):</b><br>
                                 <b>' . htmlspecialchars($data['client_name']) . '</b><br>
                                 ' . htmlspecialchars($data['client_email']) . '<br>
                                 Telp: ' . htmlspecialchars($data['client_phone']) . '
@@ -155,21 +159,22 @@ $html = '
             <tr class="item">
                 <td>
                     <b>Trip: ' . htmlspecialchars($data['trip_title']) . '</b><br>
-                    Peserta: ' . (int)$data['num_of_people'] . ' orang<br>
+                    Harga Satuan: Rp ' . number_format($price_after_discount_per_person, 0, ',', '.') . '<br>
+                    Jumlah Peserta: ' . (int)$data['num_of_people'] . ' orang<br>
                     Durasi: ' . htmlspecialchars($data['trip_duration']) . '
                 </td>
-                <td>Rp ' . number_format($data['total_price'], 0, ',', '.') . '</td>
+                <td>Rp ' . number_format($actual_total_price, 0, ',', '.') . '</td>
             </tr>
             
             <tr class="total">
                 <td></td>
-                <td>Total Dibayar: Rp ' . number_format($data['total_price'], 0, ',', '.') . '</td>
+                <td>Total Dibayar: Rp ' . number_format($data['amount_paid'], 0, ',', '.') . '</td>
             </tr>
         </table>
 
         <div class="footer">
             <p>Invoice ini adalah bukti pembayaran resmi untuk pemesanan trip Anda. Terima kasih telah memilih layanan kami.</p>
-            <p>Status: LUNAS | Tanggal Pembayaran Dikonfirmasi: ' . date('d F Y H:i', strtotime($data['paid_at'] ?? $data['created_at'])) . '</p>
+            <p>Status: LUNAS | Tanggal Pembayaran Dikonfirmasi: ' . date('d F Y H:i', strtotime($data['payment_confirmation_at'] ?? $data['created_at'])) . '</p>
         </div>
     </div>
 </body>
@@ -180,29 +185,25 @@ $html = '
 // 3. RENDER PDF MENGGUNAKAN DOMPDF
 // =========================================================================
 
-// Konfigurasi Dompdf (Opsional, tapi disarankan)
 $options = new Options();
 $options->set('defaultFont', 'sans-serif');
-$options->set('isRemoteEnabled', TRUE); // Izinkan loading asset eksternal (logo, dll.)
+// Perlu disetel ke TRUE agar Dompdf bisa memuat gambar logo
+$options->set('isRemoteEnabled', TRUE); 
+// Perlu disetel path dasar jika isRemoteEnabled TRUE, agar Dompdf tahu dari mana mulai mencari assets/vly.png
+// Mengasumsikan file diakses melalui URL:
+$protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
+$base_url = $protocol . "://" . $_SERVER['HTTP_HOST'] . "/"; 
+$options->set('base_path', $base_url);
+
 
 $dompdf = new Dompdf($options);
-
-// Load HTML ke Dompdf
 $dompdf->loadHtml($html);
-
-// Set ukuran kertas dan orientasi
 $dompdf->setPaper('A4', 'portrait');
-
-// Render HTML menjadi PDF
 $dompdf->render();
 
-// Nama file yang akan diunduh
 $file_name = "INVOICE-" . str_replace('/', '-', $data['invoice_number']) . ".pdf";
-
-// Output the generated PDF (Attachment = true akan memaksa unduh)
 $dompdf->stream($file_name, array("Attachment" => true));
 
-// Tutup koneksi DB setelah selesai
 $conn->close();
 
 exit();

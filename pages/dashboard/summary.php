@@ -1,14 +1,6 @@
 <?php
 // File: pages/dashboard/summary.php
-// Halaman Ringkasan/Dashboard Utama untuk Provider.
 
-// =======================================================================
-// Perbaikan Utama: Menggunakan variabel yang sudah di-set di dashboard.php
-// $user_id_from_session (int)
-// $actual_provider_id (int)
-// =======================================================================
-
-// Pastikan variabel utama sudah tersedia. Jika tidak, redirect/error (meskipun seharusnya sudah dicegah di dashboard.php)
 if (!isset($actual_provider_id) || !$actual_provider_id) {
     $error = "Data Provider tidak ditemukan. Harap lengkapi profil Anda.";
     $provider_id = null;
@@ -73,18 +65,32 @@ try {
 
         // --- 3. QUERY RINGKASAN DATA PEMESANAN & PENDAPATAN (PERUBAHAN ADA DI BAWAH INI) ---
         $sql_booking_summary = "
-                SELECT 
-                    COALESCE(COUNT(b.id), 0) AS total_bookings,
-                    COALESCE(SUM(CASE 
-                        WHEN b.status = 'pending' AND t.start_date >= CURDATE() THEN 1 
-                        ELSE 0 
-                    END), 0) AS bookings_pending_confirm,
-                    COALESCE(SUM(CASE WHEN b.status = 'paid' THEN b.total_price ELSE 0 END), 0) AS total_revenue
-                FROM trips t
-                -- FORCE INDEX DITAMBAHKAN DI SINI
-                JOIN bookings b FORCE INDEX (idx_trip_status) ON b.trip_id = t.id
-                WHERE t.provider_id = ?
-            ";
+            SELECT 
+                COALESCE(COUNT(b.id), 0) AS total_bookings,
+                COALESCE(SUM(b.num_of_people), 0) AS total_participants,
+                
+                -- 1. BOOKINGS MENUNGGU TINDAKAN PROVIDER (Waiting Confirmation)
+                COALESCE(SUM(CASE 
+                    WHEN b.status = 'waiting_confirmation' THEN 1 
+                    ELSE 0 
+                END), 0) AS bookings_pending_confirm,
+                
+                -- 2. BOOKINGS BELUM LUNAS & TRIP BELUM DIMULAI (Filter yang Anda minta)
+                -- Ini akan menghitung jumlah transaksi (b.id) yang memenuhi syarat
+                COALESCE(SUM(CASE 
+                    WHEN b.status IN ('unpaid', 'pending', 'waiting_confirmation') 
+                        AND t.start_date >= CURDATE() 
+                    THEN 1 
+                    ELSE 0 
+                END), 0) AS bookings_active_unpaid,
+                
+                -- Total Pendapatan Lunas
+                COALESCE(SUM(CASE WHEN b.status = 'paid' THEN b.amount_paid ELSE 0 END), 0) AS total_revenue 
+
+            FROM trips t
+            JOIN bookings b ON b.trip_id = t.id
+            WHERE t.provider_id = ?
+        ";
         // Catatan: Pemesanan 'paid' (pendapatan) dihitung terlepas dari tanggal trip.
 
         $stmt_booking = $conn->prepare($sql_booking_summary);

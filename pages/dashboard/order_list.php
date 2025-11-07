@@ -92,7 +92,7 @@ try {
             // 2B. Ambil Data Pemesanan dengan Limit dan Offset
             // ==========================================================
             $sql_orders = "SELECT 
-                        b.id AS booking_id, b.num_of_people, b.total_price, b.created_at AS booking_date, 
+                        b.id AS booking_id, b.uuid AS booking_uuid, b.num_of_people, b.total_price, b.created_at AS booking_date, 
                         b.status AS booking_status, b.proof_of_payment_path, 
                         u.name AS client_name, u.email AS client_email, u.phone AS client_phone
                     FROM bookings b
@@ -123,6 +123,7 @@ function get_booking_status_badge($status) {
         case 'cancelled': return '<span class="badge bg-danger"><i class="bi bi-x-circle-fill me-1"></i> Dibatalkan</span>';
         case 'completed': return '<span class="badge bg-primary"><i class="bi bi-trophy-fill me-1"></i> Selesai</span>';
         case 'pending': return '<span class="badge bg-info text-dark"><i class="bi bi-hourglass-split me-1"></i> Menunggu Konfirmasi</span>';
+        case 'waiting_confirmation': return '<span class="badge bg-primary text-light"><i class="bi bi-hourglass-split me-1"></i> Sudah Bayar</span>';
         default: return '<span class="badge bg-secondary">N/A</span>'; 
     }
 }
@@ -132,11 +133,12 @@ function get_booking_status_badge($status) {
  */
 function get_status_border_class($status) {
     switch ($status) {
-        case 'paid':
+        case 'paid': return 'border-success';
         case 'completed': return 'border-success';
-        case 'pending': return 'border-info';
+        case 'pending': return 'border-secondry';
         case 'unpaid': return 'border-warning';
         case 'cancelled': return 'border-danger';
+        case 'waiting_confirmation': return 'border-primary';
         default: return 'border-secondary'; 
     }
 }
@@ -255,7 +257,9 @@ function get_status_border_class($status) {
                          </div>
                     </div>
                     <div class="text-end">
-                        <span class="badge bg-secondary-subtle text-secondary fw-bold">#<?php echo $order['booking_id']; ?></span>
+                        <span class="badge bg-secondary-subtle text-secondary fw-bold">
+                            #<?php echo strtoupper(substr($order['booking_uuid'], 0, 8)); ?>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -274,9 +278,13 @@ function get_status_border_class($status) {
                 <div>
                     <p class="detail-label text-center">BUKTI TRANSFER</p>
                     <div class="text-center">
-                        <?php if (($status === 'unpaid' || $status === 'pending') && $has_proof): ?>
+                        <?php if (($status === 'pending') && $has_proof): ?>
                             <span class="badge bg-warning text-dark" title="Menunggu Konfirmasi">
-                                <i class="bi bi-clock-history me-1"></i> Uploaded
+                                <i class="bi bi-clock-history me-1"></i> Menuggu Client
+                            </span>
+                        <?php elseif (($status === 'waiting_confirmation') && $has_proof): ?>
+                            <span class="badge bg-warning text-dark" title="Menunggu Konfirmasi">
+                                <i class="bi bi-clock-history me-1"></i> Menunggu Konfirmasi Provider
                             </span>
                         <?php elseif ($status === 'paid' || $status === 'completed'): ?>
                             <span class="text-success fs-5" title="Lunas/Selesai"><i class="bi bi-check-circle-fill"></i></span>
